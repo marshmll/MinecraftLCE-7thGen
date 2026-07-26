@@ -20,6 +20,13 @@ change — the renderer, input, and storage systems are closed-source 4J Studios
 middleware with zero source in the leak, so making them work on Linux means
 reimplementing them from scratch against real APIs (OpenGL/SDL2/OpenAL/POSIX).
 
+**Status: that goal is met.** The client builds, boots straight into a generated world,
+renders correctly textured terrain, and is playable — movement, mouse look, jump,
+swimming, block breaking and placing, creative flight and the HUD all work, and it exits
+cleanly. What remains is rendering polish (no lightmap sampling, cloud/leaf/held-item
+artefacts) and the deliberately-deferred Iggy UI. See
+`.memory/linux-port-plan-and-status.md` for the live list.
+
 **Read `.claude/linux-port/` before touching this port.** It has the deep detail this
 file intentionally omits:
 - `.claude/linux-port/ARCHITECTURE.md` — how the port is structured, the closed-middleware
@@ -52,6 +59,17 @@ For the full phase-by-phase plan and its live status, see
   repeatedly: MSVC's CRT tolerates undefined behavior (mismatched `new[]`/`delete`,
   `va_arg` type mismatches) that glibc's allocator or GCC's stricter diagnostics
   catch immediately. Fix the real bug rather than working around the symptom.
+- **When a whole feature is silently inert, look for an uninitialised field or an
+  initialiser Linux never reaches — not for a logic error.** This one pattern accounted
+  for more broken gameplay than every rendering bug combined (dead camera, blocked jump,
+  a 1-second game clock, a missing HUD). The recurring shape is a platform guard listing
+  `_WINDOWS64`/`__PS3__`/`__ORBIS__`/`_DURANGO`/`__PSVITA__` with no `_LINUX64`, or a
+  `static` with no initialiser. See `KNOWN_BUGS.md`'s first two sections.
+- **Debug by printing the gate, not the symptom.** Every input bug in this port was found
+  by printing the two halves of a single `if` and seeing which was false; reasoning from
+  the code produced a confident wrong answer nearly every time. Same for rendering:
+  instrument and read actual numbers (bound texture id/size, vertex bytes, UVs, GL enums)
+  rather than inferring from a screenshot.
 - **Follow the existing platform-shim precedent.** PS3/Orbis/PSVita each have a
   `*Stubs.h`/`*Stubs.cpp` pair mapping Win32 primitives onto native APIs
   (`Minecraft.Client/PS3/PS3Extras/Ps3Stubs.h` is the cleanest example). Linux's

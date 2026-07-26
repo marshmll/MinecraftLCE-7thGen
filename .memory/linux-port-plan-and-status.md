@@ -1,8 +1,9 @@
 # Linux port: plan and live status
 
-Last updated: 2026-07-25, late Phase 7c — **the game now renders and plays correctly**
-(screenshot-verified: textured terrain, correct colours, trees, clouds, a pink pig) and
-exits cleanly. If you're resuming this work, read this file first, then
+Last updated: 2026-07-25, end of Phase 7c — **the game renders and plays correctly and is
+actually playable**: movement, mouse look, jump, swimming, block breaking and placing,
+creative flight and the HUD all confirmed working by the project owner, and it exits
+cleanly. If you're resuming this work, read this file first, then
 `.claude/linux-port/ARCHITECTURE.md` and `KNOWN_BUGS.md` for the "why" behind everything
 below.
 
@@ -15,8 +16,8 @@ below.
 | 3 — Linux client shell | ✅ done | SDL2 window + GL context + event pump, stubbed middleware |
 | 4 — `LinuxRender` (real OpenGL) | ✅ done | Full `C4JRender` OpenGL 3.3 implementation, verified with a rendered rotating triangle |
 | 5 — Input/Storage/Audio | ✅ done | `LinuxInput`/`LinuxStorage`/`LinuxAudioShim`, verified standalone |
-| 6 — Docs and cleanup | ⏳ not started | This session's `.claude`/`.memory`/`CLAUDE.md` work is a head start on this |
-| 7 — Boot the real game (skip Iggy) | 🔶 in progress | Renders correctly and exits cleanly; what's left is rendering polish + an input re-test, see below |
+| 6 — Docs and cleanup | ✅ largely done | `.claude/linux-port/*`, `.memory/*`, `CLAUDE.md` written and kept current through Phase 7 |
+| 7 — Boot the real game (skip Iggy) | ✅ done | Renders correctly, playable, exits cleanly. Remaining items are polish — see "still open" |
 | 8 — Iggy replacement (deferred) | not started | Explicitly out of scope until Phase 7 lands cleanly |
 
 Phase 7 was split into sub-steps as it grew far larger than expected:
@@ -24,8 +25,7 @@ Phase 7 was split into sub-steps as it grew far larger than expected:
   `Minecraft.Client` gameplay/rendering tree now compiles and links.
 - **7b** (real bootstrap, replacing the test-triangle demo) — ✅ done. Binary boots
   into a real generated world via the direct `TemporaryCreateGameStart()` path.
-- **7c** (fix what live playtesting revealed) — 🔶 in progress. The rendering and
-  stability bugs are done; see "What's still open" for the remainder.
+- **7c** (fix what live playtesting revealed) — ✅ done. 19 distinct bugs, listed below.
 
 
 ## What's confirmed working right now
@@ -72,37 +72,77 @@ All in `LinuxRender.cpp` unless noted:
     count (`MinecraftServer.cpp` `#if __PS3__` guard + `LinuxShutdownManager.cpp`
     predicate and `std::atomic`). Together these were the reported "freeze".
 
+
+### Also fixed this session — gameplay/input (details in `KNOWN_BUGS.md`)
+
+12. **Camera could not turn at all.** `InitGameSettings()` only called `SetDefaultOptions()`
+    under `#if _WINDOWS64` / `#elif` the four consoles, so `GAME_SETTINGS` stayed zeroed and
+    `ucSensitivity == 0` made the look axes permanently 0 (`Consoles_App.cpp`).
+13. **Underwater viewport glitch + wrong FOV everywhere.** `MatrixPerspective` treated
+    `gluPerspective`'s degrees as radians (`LinuxRender.cpp`, plus the smoke-test call site).
+14. **The game clock had 1-second resolution.** `GetSystemTime()` hardcoded
+    `wMilliseconds = 0` and `SystemTimeToFileTime()` dropped the field, so
+    `System::currentTimeMillis()` jumped in 1000ms steps and tick loops ran in bursts —
+    the "mobs update once a second, very spiky" report (`LinuxStubs.cpp`).
+15. **Jump was blocked by tutorial input constraints.** `s_bProfileIsFullVersion` was never
+    initialised, so `IsFullVersion()` was false, so the game built a `TrialMode` (derived
+    from `FullTutorialMode`). Its `isInputAllowed()` constrains jump and can never lift
+    because the Iggy UI that advances the tutorial is bypassed. Water was the exception only
+    because `Tutorial.cpp:1964` has an eye-level "allow keypresses so they can jump out of
+    water" escape hatch — whose flickering at the surface also explains the intermittent
+    swim impulse and the spurious flight toggles (`Extrax64Stubs.cpp`).
+16. **The whole in-game input block and the HUD were disabled.** A failed Iggy scene
+    navigation latches "menu displayed" on forever; `Minecraft.cpp:2238` gates all in-game
+    input on it (breaking/placing) and `Gui.cpp:175` gates the HUD on it. Neutralised at
+    both layers (`LinuxUIController.h`, `LinuxInput.cpp`). **The HUD had been missing for
+    all of Phase 7 because of this and nothing reported an error.**
+17. **WASD also fired debug D-pad actions** (W = fly toggle, S = debug overlay,
+    A = spawn creeper, D = change skin) because the keyboard raised `DPAD_*` bits alongside
+    the stick bits. This was the real cause of the long-standing "flying is on" and
+    "W and D feel swapped" reports (`LinuxInput.cpp`).
+18. Mouse look redesigned: non-destructive velocity sampling with `sqrt` pre-compensation
+    for `Input.cpp`'s quadratic response; `LY`/`RY` corrected to forward/up-positive (W/S
+    were inverted). Mouse break/place bindings were swapped (left now breaks).
+19. SHIFT wired to sneak / descend-while-flying.
+
 ## What's still open — pick up here
 
-Cosmetic/rendering polish, all seen in the final screenshot:
+Everything reported by live playtesting is now fixed and confirmed by the project owner:
+movement, mouse look, jump, swimming, breaking, placing, flight, HUD, clean exit.
 
-1. **Clouds look blocky/stretched** (user-reported). `LevelRenderer::createCloudMesh`
-   (`LevelRenderer.cpp:1350`) records `cloudList`; not investigated.
-2. **Leaf cutouts show white/blue speckles** — alpha test may not be discarding
-   correctly. `u_alphaTestEnabled`/`u_alphaFunc` only implement the `GL_GREATER` case.
-3. **The held item renders as a large flat shape** in the bottom-right corner. Probably
-   the `ItemInHandRenderer` display lists / its own matrix setup.
-4. **The lightmap is not sampled.** `TextureBindVertex`'s texture is tracked but unused,
-   and `ExpandCompressedVertices` drops the secondary UVs (`[6..7]`) it would need. Per-
-   block light currently comes only from baked vertex colours, which looks broadly right
-   but means no smooth light falloff from torches etc. This is the main remaining
-   *rendering-correctness* gap rather than a bug.
-5. **The player sometimes spawns inside terrain**, so the first screenshot of a run is
-   often the inside of a hill. Unclear whether this is a real spawn-position bug or just
-   the direct `TemporaryCreateGameStart()` path skipping normal spawn placement.
-6. **Input re-test now due.** The earlier "W and D feel swapped" / "mouse-look doesn't
-   turn" / "jump doesn't work" reports were all filed while rendering was broken enough
-   to make orientation impossible to judge. Re-test before treating any of them as real.
-7. **Residual: threads that never exit** (`rebuildChunkThreadProc`,
-   `runSaveThreadProc`) — see `KNOWN_BUGS.md`. Latent, not currently causing failures.
+Remaining known gaps, none currently blocking play:
+
+1. **The lightmap is tracked but never sampled.** `TextureBindVertex`'s texture is kept out
+   of the fragment slot but not used, and `ExpandCompressedVertices` drops the secondary UVs
+   (`[6..7]`) it would need. Per-block light comes only from baked vertex colours, so there
+   is no smooth torch falloff. This is the main remaining *rendering-correctness* gap.
+2. **`glColor4f` is ignored for tesselated draws.** `StateSetColour` sets a default vertex
+   attribute, but attribute 2 is a permanently enabled array, so per-vertex colour always
+   wins (and `Tesselator::end()` writes white when `hasColor` is false). Affects overlay
+   brightness — e.g. the in-wall overlay is far brighter than intended.
+3. Clouds look blocky/stretched; leaf cutouts show white speckles (alpha test only
+   implements the `GL_GREATER` case); the held item renders as a large flat shape.
+4. The player sometimes spawns inside terrain — unclear whether a real spawn-placement bug
+   or just the direct `TemporaryCreateGameStart()` path skipping normal placement.
+5. **Residual: threads that never exit** (`rebuildChunkThreadProc`, `runSaveThreadProc`) —
+   see `KNOWN_BUGS.md`. Latent; exit is clean and repeatable today.
+6. Phase 6 (docs/cleanup) is effectively done as a side effect of this work; Phase 8 (Iggy
+   replacement) remains deliberately out of scope.
 
 ## Method note for whoever picks this up
 
-Every rendering bug this session was **misdiagnosed from the screenshot** and only
-pinned down by instrumenting the renderer and reading numbers — bound texture id and
-size, vertex colour bytes, UVs, GL filter enums, draw counts. Two examples worth
-internalising: terrain "looking untextured" was actually a correctly-textured draw
-sampling a 16×16 lightmap, and "colours are wrong" was measured to be *correct* vertex
-colours (grey stone) with a channel-swapped texture. Reach for a one-shot `fprintf` in
-`ApplyStateAndDraw`/`TextureBind` before theorising. See `BUILD_AND_RUN.md` for the
-agent-usable `spectacle` screenshot recipe.
+Two techniques did essentially all the work this session, and neither is "read the code and
+reason about it" — that produced a confident wrong answer nearly every time:
+
+1. **Print the gate, not the symptom.** Every input bug was found by printing the two halves
+   of a single `if` and seeing which was false. `isInputAllowed` vs `GetValue`;
+   `screen == NULL` vs `GetMenuDisplayed`. Minutes each, after hours of failed theorising.
+2. **Instrument and read numbers for rendering.** Bound texture id and size, vertex colour
+   bytes, UVs, GL filter enums. "Terrain looks untextured" measured as a correctly-textured
+   draw sampling a 16x16 lightmap; "colours are wrong" measured as *correct* grey vertex
+   colours times a channel-swapped texture.
+
+Also: the project owner's playtest reports are precise and worth taking literally. "It stops
+the exact moment my camera gets out of the water" pinned an eye-level test
+(`isUnderLiquid`) that no amount of code reading had suggested; "bouncing triggers flying"
+identified a rising-edge double-tap detector firing on a flickering gate.

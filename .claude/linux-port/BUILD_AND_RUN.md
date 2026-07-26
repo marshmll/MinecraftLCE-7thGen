@@ -49,6 +49,35 @@ the real game (rotating test triangle + throwaway input/storage/audio self-tests
 useful for isolating whether a regression is in the renderer/input/storage/audio
 subsystems themselves vs. the real game logic built on top of them).
 
+## Controls
+
+Keyboard+mouse bindings live in one place: `ReadPhysicalButtons()` in
+`Minecraft.Client/Linux/LinuxExtras/LinuxInput.cpp`, which maps host input onto the
+`_360_JOY_BUTTON_*` bits the shared code expects. `DefineActions()`
+(`Linux_Minecraft.cpp`) maps those bits to `MINECRAFT_ACTION_*`.
+
+| Input | Action |
+|---|---|
+| WASD / arrows | Move (left-stick bits **only** - see `KNOWN_BUGS.md` on the D-pad) |
+| Mouse | Look |
+| **Left mouse** | Break (`MINECRAFT_ACTION_ACTION` → `RT`) |
+| **Right mouse** | Place / use (`MINECRAFT_ACTION_USE` → `LT`) |
+| LCTRL | Break (keyboard alternate) |
+| SPACE / RETURN | Jump; double-tap toggles creative flight; ascend while flying |
+| **SHIFT** | Sneak; hold to descend while flying |
+| TAB | Inventory · Q | Crafting · ESC | Pause (does **not** quit) |
+| SHIFT+ESC | Developer quit |
+
+Two non-obvious rules when editing these:
+
+- **Never raise `_360_JOY_BUTTON_DPAD_*` from a movement key.** The D-pad carries debug
+  actions in non-final builds (fly toggle / debug overlay / spawn creeper / change skin).
+- `GetJoypadStick_LY`/`RY` are forward/up-**positive**, unlike SDL and XINPUT.
+
+The debug overlay (fps, coordinates, biome, structure locations) is
+`MINECRAFT_ACTION_GAME_INFO` on the `BACK` button, currently bound to no key - add one in
+`ReadPhysicalButtons()` if you want it.
+
 ## Quitting
 
 - The window close button, or `SIGTERM`/`SIGINT` (SDL turns both into `SDL_QUIT`) —

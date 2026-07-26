@@ -136,7 +136,9 @@ namespace
 			RenderManager.MatrixMode(GL_PROJECTION);
 			RenderManager.MatrixSetIdentity();
 			float aspect = app.GetHeight() > 0 ? (float)app.GetWidth() / (float)app.GetHeight() : 1.0f;
-			RenderManager.MatrixPerspective(60.0f * 3.14159265f / 180.0f, aspect, 0.1f, 100.0f);
+			// Degrees, matching gluPerspective (this call previously converted to radians,
+			// which is what led MatrixPerspective to be written against the wrong unit).
+			RenderManager.MatrixPerspective(60.0f, aspect, 0.1f, 100.0f);
 
 			RenderManager.MatrixMode(GL_MODELVIEW);
 			RenderManager.MatrixSetIdentity();

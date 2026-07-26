@@ -23,6 +23,19 @@ public:
 	// site for why calling postInit() here is safe (no real Iggy loading).
 	void Boot(S32 width, S32 height) { preInit(width, height); postInit(); }
 
+	// No Iggy scene ever actually appears on screen in this build, so nothing is
+	// ever "displaying a menu" - report that truthfully.
+	//
+	// The base class can't: UIController::NavigateToScene() sets the flag *before*
+	// it tries to build the scene (UIController.cpp:1481) and only NavigateBack()
+	// clears it. Here the scene construction fails ("WARNING: Scene 1 was not
+	// created" in the log) and nothing ever navigates back, so the flag latches on
+	// permanently. That silently disabled a large amount of gameplay, because
+	// Minecraft::tick() guards its whole in-game input block on it
+	// (Minecraft.cpp:2238) - block breaking and placing among others - and Gui.cpp:175
+	// gates the entire HUD on it too.
+	bool GetMenuDisplayed(int iPad) { return false; }
+
 	void render();
 	CustomDrawData *setupCustomDraw(UIScene *scene, IggyCustomDrawCallbackRegion *region);
 	CustomDrawData *calculateCustomDraw(IggyCustomDrawCallbackRegion *region);

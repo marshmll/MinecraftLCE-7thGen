@@ -390,7 +390,20 @@ DWORD XEnableGuestSignin(BOOL fEnable) { return 0; }
 /////////////////////////////////////////////// Profile library
 #if defined(_WINDOWS64) || defined(_LINUX64)
 static void *profileData[4];
-static bool s_bProfileIsFullVersion;
+// Must default to TRUE: a desktop build has no trial licensing, and nothing else
+// ever assigns this (only SetDebugFullOverride does, which no caller uses). Left
+// zero-initialised it reported "not full version", which sends Minecraft.cpp:1067
+// down the TrialMode path - and TrialMode derives from FullTutorialMode, whose
+// isInputAllowed() applies the tutorial's per-state input constraints. Those can
+// never be lifted here because the Iggy UI that displays hints and advances the
+// tutorial is deliberately bypassed, so jump stayed permanently blocked.
+//
+// It only appeared to work in water because Tutorial.cpp:1964 has an explicit
+// "if the player is under water then allow all keypresses so they can jump out"
+// escape hatch - and because that test is eye-level (isUnderLiquid), bobbing at
+// the surface made the gate flicker, which both cut the swim impulse in and out
+// and produced the repeated rising edges that spuriously toggled creative flight.
+static bool s_bProfileIsFullVersion = true;
 void				C_4JProfile::Initialise( DWORD dwTitleID,
 								DWORD dwOfferID,
 								unsigned short usProfileVersion,

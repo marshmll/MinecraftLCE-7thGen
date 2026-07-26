@@ -493,9 +493,17 @@ BOOL FindNextFileA(HANDLE /*hFindFile*/, LPWIN32_FIND_DATAA /*lpFindFileData*/)
 
 // --- Time -----------------------------------------------------------------
 
+// wMilliseconds MUST be filled in. System::currentTimeMillis() (Minecraft.World/
+// system.cpp:66) is built out of GetSystemTime() + SystemTimeToFileTime(), and it
+// drives the game/server tick loops. Returning whole seconds made that clock stand
+// still for a second and then jump 1000ms, so a second's worth of ticks fired in one
+// burst and then nothing happened until the next second - which is what "mob movement
+// updates once a second, very spiky" was.
 VOID GetSystemTime(LPSYSTEMTIME lpSystemTime)
 {
-    time_t now = time(NULL);
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    time_t now = (time_t)ts.tv_sec;
     struct tm tmv;
     gmtime_r(&now, &tmv);
     lpSystemTime->wYear = (WORD)(tmv.tm_year + 1900);
@@ -505,12 +513,14 @@ VOID GetSystemTime(LPSYSTEMTIME lpSystemTime)
     lpSystemTime->wHour = (WORD)tmv.tm_hour;
     lpSystemTime->wMinute = (WORD)tmv.tm_min;
     lpSystemTime->wSecond = (WORD)tmv.tm_sec;
-    lpSystemTime->wMilliseconds = 0;
+    lpSystemTime->wMilliseconds = (WORD)(ts.tv_nsec / 1000000L);
 }
 
 VOID GetLocalTime(LPSYSTEMTIME lpSystemTime)
 {
-    time_t now = time(NULL);
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    time_t now = (time_t)ts.tv_sec;
     struct tm tmv;
     localtime_r(&now, &tmv);
     lpSystemTime->wYear = (WORD)(tmv.tm_year + 1900);
@@ -520,13 +530,14 @@ VOID GetLocalTime(LPSYSTEMTIME lpSystemTime)
     lpSystemTime->wHour = (WORD)tmv.tm_hour;
     lpSystemTime->wMinute = (WORD)tmv.tm_min;
     lpSystemTime->wSecond = (WORD)tmv.tm_sec;
-    lpSystemTime->wMilliseconds = 0;
+    lpSystemTime->wMilliseconds = (WORD)(ts.tv_nsec / 1000000L);
 }
 
 BOOL FileTimeToSystemTime(CONST FILETIME *lpFileTime, LPSYSTEMTIME lpSystemTime)
 {
     ULONGLONG ticks = ((ULONGLONG)lpFileTime->dwHighDateTime << 32) | lpFileTime->dwLowDateTime;
-    time_t seconds = (time_t)(ticks / 10000000ULL) - 11644473600ULL;
+    ULONGLONG totalMs = ticks / 10000ULL;
+    time_t seconds = (time_t)(totalMs / 1000ULL) - 11644473600LL;
     struct tm tmv;
     gmtime_r(&seconds, &tmv);
     lpSystemTime->wYear = (WORD)(tmv.tm_year + 1900);
@@ -536,7 +547,7 @@ BOOL FileTimeToSystemTime(CONST FILETIME *lpFileTime, LPSYSTEMTIME lpSystemTime)
     lpSystemTime->wHour = (WORD)tmv.tm_hour;
     lpSystemTime->wMinute = (WORD)tmv.tm_min;
     lpSystemTime->wSecond = (WORD)tmv.tm_sec;
-    lpSystemTime->wMilliseconds = 0;
+    lpSystemTime->wMilliseconds = (WORD)(totalMs % 1000ULL);
     return TRUE;
 }
 
@@ -551,7 +562,10 @@ BOOL SystemTimeToFileTime(CONST SYSTEMTIME *lpSystemTime, LPFILETIME lpFileTime)
     tmv.tm_min = lpSystemTime->wMinute;
     tmv.tm_sec = lpSystemTime->wSecond;
     time_t seconds = timegm(&tmv);
-    ULONGLONG ticks = ((ULONGLONG)seconds + 11644473600ULL) * 10000000ULL;
+    // Include wMilliseconds: dropping it here would throw away the sub-second part
+    // of GetSystemTime() again and re-break System::currentTimeMillis().
+    ULONGLONG ticks = ((ULONGLONG)seconds + 11644473600ULL) * 10000000ULL
+                      + (ULONGLONG)lpSystemTime->wMilliseconds * 10000ULL;
     lpFileTime->dwLowDateTime = (DWORD)(ticks & 0xFFFFFFFFu);
     lpFileTime->dwHighDateTime = (DWORD)(ticks >> 32);
     return TRUE;

@@ -22,6 +22,9 @@ namespace
 	const int MAX_PADS = 4;
 	const int MAX_ACTIONS = 256;
 	const int MAX_MAPS = 3; // MAP_STYLE_0/1/2
+	// Sized so that every possible unsigned char action index is in range, which is
+	// why the accessors below only need to bounds-check the map index.
+	static_assert(MAX_ACTIONS >= 256, "action index is an unsigned char, so MAX_ACTIONS must cover 0..255");
 
 	float Clamp(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
@@ -49,17 +52,48 @@ namespace
 		unsigned int axisMap[4] = { AXIS_MAP_LX, AXIS_MAP_LY, AXIS_MAP_RX, AXIS_MAP_RY };
 		unsigned int triggerMap[2] = { TRIGGER_MAP_0, TRIGGER_MAP_1 };
 
-		// Pad 0 only: this frame's mouse-look contribution (real analog
-		// sticks report a held deflection; a mouse only ever reports a
-		// one-frame delta, so this is captured fresh in Tick() and consumed
-		// once by ReadAxis() before the next Tick() overwrites it).
-		float mouseAxisRX = 0.0f;
-		float mouseAxisRY = 0.0f;
+		// Pad 0 only: smoothed mouse velocity in pixels/second, +X right, +Y up.
+		//
+		// Velocity rather than a raw per-frame delta because that is what the
+		// interface being emulated actually means: ReadAxis() is a "where is the
+		// stick right now" sample that several callers take, at different rates,
+		// any number of times per tick. Anything consumed-on-read breaks those
+		// callers, and a raw per-frame delta is meaningless to a 20Hz reader when
+		// Tick() runs at ~100Hz.
+		float mouseVelX = 0.0f;
+		float mouseVelY = 0.0f;
 	};
 
 	PadState g_pads[MAX_PADS];
 	unsigned int g_joypadMap[MAX_MAPS][MAX_ACTIONS] = {};
 	AnalogRange g_analogRange;
+
+	// Mouse-look tuning. MOUSE_LOOK_GAIN is in stick-units^2 per (pixel/second):
+	// Input.cpp:102 turns a stick value into rotation as `tx * abs(tx) * 50` per
+	// 20Hz tick, i.e. degrees/sec = 1000 * tx^2. Feeding sqrt() of the velocity
+	// through that square therefore makes the turn rate LINEAR in mouse speed,
+	// which is what "natural" means for a mouse - passing velocity in directly
+	// gave a quadratic curve that felt dead when moving slowly and uncontrollable
+	// when moving fast.
+	//
+	// Because the square cancels, the resulting turn rate is simply
+	// degrees/sec = 1000 * velocity * GAIN, i.e. GAIN * 1000 degrees per pixel.
+	// 0.0008 gives 0.8 deg/pixel. This is the one number to change if look speed
+	// needs adjusting.
+	const float MOUSE_LOOK_GAIN = 0.0008f;
+	// Light smoothing over Tick()'s ~100Hz sampling so a 20Hz reader sees a
+	// stable value rather than whichever single frame it happened to land on.
+	const float MOUSE_VEL_SMOOTHING = 0.65f;
+	double g_lastMouseSampleTime = 0.0;
+
+	// Velocity (px/s) -> stick deflection, pre-compensated for the quadratic above.
+	float MouseVelToStick(float vel)
+	{
+		float mag = std::sqrt(std::fabs(vel) * MOUSE_LOOK_GAIN);
+		if (mag > 1.0f) mag = 1.0f;
+		return vel < 0.0f ? -mag : mag;
+	}
+
 	float g_repeatDelaySecs = 0.3f;
 	float g_repeatRateSecs = 0.2f;
 	bool g_initialised = false;
@@ -126,22 +160,45 @@ namespace
 			if (keys[SDL_SCANCODE_Q]) mask |= _360_JOY_BUTTON_X;
 			if (keys[SDL_SCANCODE_TAB]) mask |= _360_JOY_BUTTON_Y;
 			if (keys[SDL_SCANCODE_ESCAPE]) mask |= _360_JOY_BUTTON_START;
-			if (keys[SDL_SCANCODE_UP] || keys[SDL_SCANCODE_W]) mask |= (_360_JOY_BUTTON_DPAD_UP | _360_JOY_BUTTON_LSTICK_UP);
-			if (keys[SDL_SCANCODE_DOWN] || keys[SDL_SCANCODE_S]) mask |= (_360_JOY_BUTTON_DPAD_DOWN | _360_JOY_BUTTON_LSTICK_DOWN);
-			if (keys[SDL_SCANCODE_LEFT] || keys[SDL_SCANCODE_A]) mask |= (_360_JOY_BUTTON_DPAD_LEFT | _360_JOY_BUTTON_LSTICK_LEFT);
-			if (keys[SDL_SCANCODE_RIGHT] || keys[SDL_SCANCODE_D]) mask |= (_360_JOY_BUTTON_DPAD_RIGHT | _360_JOY_BUTTON_LSTICK_RIGHT);
-			if (keys[SDL_SCANCODE_LSHIFT]) mask |= _360_JOY_BUTTON_LT;
+			// Movement keys raise the LEFT STICK bits ONLY - never the D-pad.
+			//
+			// The D-pad is a separate control with its own bindings, and in a non-final
+			// build those are debug functions: Minecraft.cpp:1456-1465 remaps
+			// DPAD_UP/DOWN/LEFT/RIGHT to FLY_TOGGLE / RENDER_DEBUG / SPAWN_CREEPER /
+			// CHANGE_SKIN whenever app.GetUseDPadForDebug() is set, which it is
+			// (Consoles_App.cpp:210). Raising both bit groups from one key therefore
+			// made W toggle creative flight, S toggle the debug overlay, A spawn a
+			// creeper and D change skin, on top of moving - which is what the
+			// "WASD glitched", "S shows debug text" and the long-standing spurious
+			// "flying is on" reports all were.
+			//
+			// Menu navigation is unaffected: DefineActions() maps ACTION_MENU_UP and
+			// friends to (DPAD_x | LSTICK_x), so the stick bits alone still drive menus.
+			if (keys[SDL_SCANCODE_UP] || keys[SDL_SCANCODE_W]) mask |= _360_JOY_BUTTON_LSTICK_UP;
+			if (keys[SDL_SCANCODE_DOWN] || keys[SDL_SCANCODE_S]) mask |= _360_JOY_BUTTON_LSTICK_DOWN;
+			if (keys[SDL_SCANCODE_LEFT] || keys[SDL_SCANCODE_A]) mask |= _360_JOY_BUTTON_LSTICK_LEFT;
+			if (keys[SDL_SCANCODE_RIGHT] || keys[SDL_SCANCODE_D]) mask |= _360_JOY_BUTTON_LSTICK_RIGHT;
+			// SHIFT = sneak, and "descend" while flying. DefineActions() maps
+			// MINECRAFT_ACTION_SNEAK_TOGGLE -> RTHUMB, and Minecraft.cpp:1443-1450
+			// already reads that action with ButtonDown() (held) when flying and
+			// ButtonPressed() (edge toggle) when not - so a held SHIFT descends
+			// (LocalPlayer.cpp:400, yd -= 0.15 + 0.42) and a tap toggles sneak on
+			// the ground, with no game-side change needed.
+			if (keys[SDL_SCANCODE_LSHIFT] || keys[SDL_SCANCODE_RSHIFT]) mask |= _360_JOY_BUTTON_RTHUMB;
+			// Keyboard alternate for break, alongside left mouse below.
 			if (keys[SDL_SCANCODE_LCTRL]) mask |= _360_JOY_BUTTON_RT;
 
-			// Left/right mouse button as an alternate (not exclusive - LSHIFT/
-			// LCTRL above still work too) binding for LT/RT, matching every
-			// desktop Minecraft edition's mine/use-with-mouse convention.
-			// DefineActions() (Linux_Minecraft.cpp, ported from
-			// Windows64_Minecraft.cpp) maps MINECRAFT_ACTION_USE -> LT and
-			// MINECRAFT_ACTION_ACTION -> RT.
+			// Mouse: LEFT = break, RIGHT = place/use, the desktop Minecraft
+			// convention. Which trigger that means is not guessable from the names -
+			// MINECRAFT_ACTION_ACTION is the break/attack action (it drives
+			// handleMouseClick(0) / handleMouseDown(0, ...) at Minecraft.cpp:3204-3225,
+			// i.e. mouse button 0) and MINECRAFT_ACTION_USE is place/use. Per
+			// DefineActions() (Linux_Minecraft.cpp) ACTION -> RT and USE -> LT, so
+			// left mouse must raise RT and right mouse LT. These were previously the
+			// other way round, which made left-click place and right-click break.
 			Uint32 mouseButtons = SDL_GetMouseState(nullptr, nullptr);
-			if (mouseButtons & SDL_BUTTON(SDL_BUTTON_LEFT)) mask |= _360_JOY_BUTTON_LT;
-			if (mouseButtons & SDL_BUTTON(SDL_BUTTON_RIGHT)) mask |= _360_JOY_BUTTON_RT;
+			if (mouseButtons & SDL_BUTTON(SDL_BUTTON_LEFT)) mask |= _360_JOY_BUTTON_RT;
+			if (mouseButtons & SDL_BUTTON(SDL_BUTTON_RIGHT)) mask |= _360_JOY_BUTTON_LT;
 		}
 
 		return mask;
@@ -197,18 +254,39 @@ void C_4JInput::Tick(void)
 			g_pads[i].lastInputTime = NowSeconds();
 	}
 
-	// Mouse-look: captured once per Tick() as this frame's delta (pixels),
-	// scaled to roughly the same magnitude SDL_GameControllerAxis's -1..1
-	// normalised range produces for a firmly-pushed stick. Consumed by
-	// ReadAxis() below, then this Tick() call's delta is spent - it does not
-	// accumulate/persist like a real held stick deflection would.
+	// Mouse-look: convert this frame's delta into a smoothed velocity that
+	// ReadAxis() can sample without consuming. SDL_GetRelativeMouseState() zeroes
+	// its own delta on every call, so it must be read exactly once per frame -
+	// here - and nowhere else.
+	//
+	// Y is negated because SDL reports +dy for "mouse moved down" while this
+	// interface is up-positive (see ReadAxis).
 	int mouseDx = 0, mouseDy = 0;
 	SDL_GetRelativeMouseState(&mouseDx, &mouseDy);
-	const float MOUSE_LOOK_SENSITIVITY = 0.03f;
-	g_pads[0].mouseAxisRX = Clamp(mouseDx * MOUSE_LOOK_SENSITIVITY, -1.0f, 1.0f);
-	g_pads[0].mouseAxisRY = Clamp(mouseDy * MOUSE_LOOK_SENSITIVITY, -1.0f, 1.0f);
+
+	double nowSecs = NowSeconds();
+	float dt = (float)(nowSecs - g_lastMouseSampleTime);
+	g_lastMouseSampleTime = nowSecs;
+	if (dt < 0.001f) dt = 0.001f;      // guard the first call and any clock stall
+	if (dt > 0.1f) dt = 0.1f;
+
+	float instX = (float)mouseDx / dt;
+	float instY = (float)-mouseDy / dt;
+	g_pads[0].mouseVelX += (instX - g_pads[0].mouseVelX) * MOUSE_VEL_SMOOTHING;
+	g_pads[0].mouseVelY += (instY - g_pads[0].mouseVelY) * MOUSE_VEL_SMOOTHING;
+
+	// Snap fully to rest once the mouse stops, so Input.cpp's rReset latch (which
+	// needs to observe an exactly-zero look axis once) can never be starved by an
+	// exponential tail that only asymptotically approaches zero.
+	if (mouseDx == 0 && mouseDy == 0 &&
+	    std::fabs(g_pads[0].mouseVelX) < 1.0f && std::fabs(g_pads[0].mouseVelY) < 1.0f)
+	{
+		g_pads[0].mouseVelX = 0.0f;
+		g_pads[0].mouseVelY = 0.0f;
+	}
+
 	if (mouseDx != 0 || mouseDy != 0)
-		g_pads[0].lastInputTime = NowSeconds();
+		g_pads[0].lastInputTime = nowSecs;
 }
 
 void C_4JInput::SetDeadzoneAndMovementRange(unsigned int uiDeadzone, unsigned int uiMovementRangeMax)
@@ -219,13 +297,14 @@ void C_4JInput::SetDeadzoneAndMovementRange(unsigned int uiDeadzone, unsigned in
 
 void C_4JInput::SetGameJoypadMaps(unsigned char ucMap, unsigned char ucAction, unsigned int uiActionVal)
 {
-	if (ucMap < MAX_MAPS && ucAction < MAX_ACTIONS)
+	// ucAction needs no bound check - see the static_assert on MAX_ACTIONS.
+	if (ucMap < MAX_MAPS)
 		g_joypadMap[ucMap][ucAction] = uiActionVal;
 }
 
 unsigned int C_4JInput::GetGameJoypadMaps(unsigned char ucMap, unsigned char ucAction)
 {
-	if (ucMap < MAX_MAPS && ucAction < MAX_ACTIONS)
+	if (ucMap < MAX_MAPS)
 		return g_joypadMap[ucMap][ucAction];
 	return 0;
 }
@@ -353,8 +432,17 @@ static float ReadAxis(int iPad, unsigned int axisSlot, bool bCheckMenuDisplay)
 	if (!pad.controller)
 	{
 		unsigned int physical = pad.axisMap[axisSlot];
-		if (iPad == 0 && physical == AXIS_MAP_RX) return pad.mouseAxisRX;
-		if (iPad == 0 && physical == AXIS_MAP_RY) return pad.mouseAxisRY;
+
+		// Mouse look. This MUST be a pure read with no side effects: RX/RY are
+		// sampled by more than one caller. Minecraft.cpp:1735's idle check reads
+		// them every frame, and it is a short-circuiting || chain starting with
+		// LY - so consuming the value here made look input work only while a
+		// movement key happened to be held (LY != 0 short-circuited the chain
+		// before it could eat the mouse motion). Tick() keeps a smoothed velocity
+		// instead, which any number of readers can sample harmlessly.
+		if (iPad == 0 && physical == AXIS_MAP_RX) return MouseVelToStick(pad.mouseVelX);
+		if (iPad == 0 && physical == AXIS_MAP_RY) return MouseVelToStick(pad.mouseVelY);
+
 		if (iPad == 0 && physical == AXIS_MAP_LX)
 		{
 			if (pad.currentButtons & _360_JOY_BUTTON_LSTICK_RIGHT) return 1.0f;
@@ -362,8 +450,11 @@ static float ReadAxis(int iPad, unsigned int axisSlot, bool bCheckMenuDisplay)
 		}
 		if (iPad == 0 && physical == AXIS_MAP_LY)
 		{
-			if (pad.currentButtons & _360_JOY_BUTTON_LSTICK_DOWN) return 1.0f;
-			if (pad.currentButtons & _360_JOY_BUTTON_LSTICK_UP) return -1.0f;
+			// Forward is POSITIVE here. Input.cpp:39 assigns ya = LY unmodified and
+			// treats positive as forward, so returning the raw XINPUT convention
+			// (up = negative) made W walk backwards and S forwards.
+			if (pad.currentButtons & _360_JOY_BUTTON_LSTICK_UP) return 1.0f;
+			if (pad.currentButtons & _360_JOY_BUTTON_LSTICK_DOWN) return -1.0f;
 		}
 		return 0.0f;
 	}
@@ -381,6 +472,10 @@ static float ReadAxis(int iPad, unsigned int axisSlot, bool bCheckMenuDisplay)
 	}
 
 	Sint16 raw = SDL_GameControllerGetAxis(pad.controller, sdlAxis);
+	// SDL reports -Y for "stick pushed up/forward"; this interface is
+	// forward/up-positive (see the AXIS_MAP_LY note above), so flip the Y axes.
+	if (physical == AXIS_MAP_LY || physical == AXIS_MAP_RY)
+		raw = (Sint16)-(int)raw;
 	float normalised = raw / 32768.0f;
 	if (std::fabs((float)raw) < (float)g_analogRange.deadzone)
 		normalised = 0.0f;
@@ -410,8 +505,19 @@ unsigned char C_4JInput::GetJoypadRTrigger(int iPad, bool bCheckMenuDisplay) { r
 
 void C_4JInput::SetMenuDisplayed(int iPad, bool bVal)
 {
-	if (iPad >= 0 && iPad < MAX_PADS)
-		g_pads[iPad].menuDisplayed = bVal;
+	// Deliberately ignored on this build. The flag exists to suppress gameplay
+	// stick/trigger input while a menu covers the screen, but no Iggy scene ever
+	// reaches the screen here, so it can only ever be set spuriously - and it
+	// latches: UIController::SetMenuDisplayed() forwards true to us from
+	// NavigateToScene() (UIController.cpp:1481/1820) *before* the scene is built,
+	// and only NavigateBack() would clear it. Scene construction fails here, so
+	// nothing ever clears it.
+	//
+	// The consequence was severe because ReadAxis()/ReadTrigger() return 0 for
+	// *every* axis when it is set: one failed navigation permanently killed both
+	// camera look and WASD movement. See LinuxUIController::GetMenuDisplayed() for
+	// the same reasoning applied to the game-facing query.
+	(void)iPad; (void)bVal;
 }
 
 EKeyboardResult C_4JInput::RequestKeyboard(LPCWSTR Title, LPCWSTR Text, DWORD dwPad, UINT uiMaxChars, int (*Func)(LPVOID, const bool), LPVOID lpParam, C_4JInput::EKeyboardMode eMode)

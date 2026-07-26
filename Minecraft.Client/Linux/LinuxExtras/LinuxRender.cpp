@@ -770,10 +770,24 @@ void C4JRender::MatrixScale(float x, float y, float z)
 	Top(g_matMode) = MatMultiply(Top(g_matMode), MatScale(x, y, z));
 }
 
-void C4JRender::MatrixPerspective(float fovy, float aspect, float zNear, float zFar)
+void C4JRender::MatrixPerspective(float fovyDegrees, float aspect, float zNear, float zFar)
 {
-	if (Recording()) { RecF(RecordedCmd::OP_MATRIX_PERSPECTIVE, fovy, aspect, zNear, zFar); return; }
-	Top(g_matMode) = MatMultiply(Top(g_matMode), MatPerspective(fovy, aspect, zNear, zFar));
+	if (Recording()) { RecF(RecordedCmd::OP_MATRIX_PERSPECTIVE, fovyDegrees, aspect, zNear, zFar); return; }
+
+	// fovy is in DEGREES here. This method is what glWrapper.cpp:51 maps
+	// gluPerspective() onto, and gluPerspective is defined in degrees; GameRenderer
+	// supplies degrees throughout (m_fov = 70.0f, GameRenderer.cpp:124).
+	//
+	// Passing them into MatPerspective's tan(fovy/2) as if they were radians made the
+	// projection silently wrong, and non-linearly so. At fov 70, tan(35 rad) happens to
+	// be +0.476, giving a plausible-looking (but incorrect) ~51 degree view. Underwater
+	// getFov() scales it to fov * 60/70 = 60 (GameRenderer.cpp:439), and tan(30 rad) is
+	// -6.40 - just past a tan pole - so the projection inverted and collapsed toward the
+	// screen centre. That was the "viewport glitches underwater" report, and also why
+	// ItemInHandRenderer's full-screen overlay quad appeared as a small centred square.
+	const float kDegToRad = 3.14159265358979323846f / 180.0f;
+	Top(g_matMode) = MatMultiply(Top(g_matMode),
+	                             MatPerspective(fovyDegrees * kDegToRad, aspect, zNear, zFar));
 }
 
 void C4JRender::MatrixOrthogonal(float left, float right, float bottom, float top, float zNear, float zFar)

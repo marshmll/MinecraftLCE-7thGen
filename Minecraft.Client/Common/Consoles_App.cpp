@@ -670,7 +670,11 @@ void CMinecraftApp::InitGameSettings()
 		//SetDefaultGameSettings(i); - done on a callback from the profile manager
 
 		// 4J-PB - adding in for Windows & PS3 to set the defaults for the joypad
-#if defined _WINDOWS64// || defined __PSVITA__
+		// Every platform needs this: without it the whole GAME_SETTINGS block stays
+		// zeroed, and a zero ucSensitivity makes Input.cpp's look axes (which scale by
+		// sensitivity/100) permanently 0 - i.e. the camera cannot turn at all, while
+		// movement still works because xa/ya are not scaled that way.
+#if defined _WINDOWS64 || defined _LINUX64// || defined __PSVITA__
 		C_4JProfile::PROFILESETTINGS *pProfileSettings=ProfileManager.GetDashboardProfileSettings(i);
 		// clear this for now - it will come from reading the system values
 		memset(pProfileSettings,0,sizeof(C_4JProfile::PROFILESETTINGS));

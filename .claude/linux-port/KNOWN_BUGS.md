@@ -1,5 +1,89 @@
 # Known bugs and gotchas
 
+## Systemic bug class: a flag or field that is never initialised, or an initialiser Linux never reaches
+
+**This is the highest-yield thing to check when a whole feature is silently inert.** It has
+now accounted for more broken gameplay than every rendering bug combined. In each case the
+code looks correct, nothing errors, and a large feature is simply dead:
+
+| Symptom | Cause |
+|---|---|
+| Camera could not turn at all | `InitGameSettings()` calls `SetDefaultOptions()` only under `#if defined _WINDOWS64` / `#elif __PS3__\|__ORBIS__\|_DURANGO\|__PSVITA__`. Linux matched neither, so the whole `GAME_SETTINGS` block stayed zeroed - and `ucSensitivity == 0` makes `Input.cpp:80`'s `tx = RX * (sens/100)` permanently 0. Movement was unaffected because `xa`/`ya` are not scaled that way. |
+| Jump ignored; only worked in water | `static bool s_bProfileIsFullVersion;` (`Extrax64Stubs.cpp`) was never initialised, so `IsFullVersion()` reported false, so `Minecraft.cpp:1067` built a **`TrialMode`** - which derives from `FullTutorialMode`, whose `isInputAllowed()` applies tutorial input constraints that can never lift because the Iggy UI that advances the tutorial is bypassed. |
+| Mobs moved in ~1 second jumps | `GetSystemTime()` hardcoded `wMilliseconds = 0` and `SystemTimeToFileTime()` ignored the field, so `System::currentTimeMillis()` only advanced in 1000ms steps. Tick loops ran a second's worth of ticks in a burst, then stalled. |
+| Heap abort at exit | `Chunk::Chunk()` (default ctor, used for the static `permaChunk[]`) initialised nothing, so `~Chunk()`'s `delete bb` freed garbage. See the `new[]`/`delete` section. |
+
+Two habits that catch these fast:
+
+1. When a feature is *entirely* absent rather than wrong, look for the **initialiser**, not the
+   logic. Grep the platform guard list around it - `_WINDOWS64` / `__PS3__` / `__ORBIS__` /
+   `_DURANGO` / `__PSVITA__` with no `_LINUX64` is the recurring shape.
+2. Where a value gates behaviour, **print the gate, not the symptom.** Every input bug this
+   session was found by printing the two halves of one `if` and seeing which was false -
+   never by reasoning about the feature.
+
+## Systemic bug class: latched state that nothing can clear because the UI is bypassed
+
+`UIController::NavigateToScene()` sets "a menu is displayed" **before** it builds the scene
+(`UIController.cpp:1481`), and only `NavigateBack()` clears it. On this build scene
+construction fails (`WARNING: Scene 1 was not created` in the log), so the flag latches on at
+boot and never clears. It is set in two places, and both had to be neutralised:
+
+- `UIController::GetMenuDisplayed()` - the game-facing query. `Minecraft.cpp:2238` guards its
+  **entire in-game input block** on it (`if (screen == NULL && !ui.GetMenuDisplayed(iPad))`),
+  which is where block breaking and placing live, and `Gui.cpp:175` gates the whole **HUD** on
+  the same value. Overridden in `LinuxUIController` to return false.
+- `C_4JInput::SetMenuDisplayed()` - `UIController::SetMenuDisplayed()` forwards `true` down to
+  it, and `ReadAxis()`/`ReadTrigger()` return 0 for *every* axis while it is set, so a single
+  failed navigation permanently killed both camera look and WASD movement. Now ignored in
+  `LinuxInput.cpp`.
+
+Both are correct for this build rather than workarounds: no Iggy scene ever reaches the
+screen, so "a menu is displayed" can only ever be spuriously true. **If some other feature
+turns out to be inert, check whether it is gated on this pair** - the HUD's absence went
+unnoticed for the whole of Phase 7 because nothing reported an error.
+
+## Keyboard must not raise the D-pad bits
+
+`ReadPhysicalButtons()` originally raised `_360_JOY_BUTTON_DPAD_*` **as well as** the
+left-stick bits for WASD/arrows. In a non-final build `Minecraft.cpp:1456-1465` repurposes the
+D-pad for debug functions whenever `app.GetUseDPadForDebug()` is set - and it is, at
+`Consoles_App.cpp:210`:
+
+| D-pad bit | Key it was on | Debug action it fired |
+|---|---|---|
+| `DPAD_UP` | W | `MINECRAFT_ACTION_FLY_TOGGLE` |
+| `DPAD_DOWN` | S | `MINECRAFT_ACTION_RENDER_DEBUG` |
+| `DPAD_LEFT` | A | `MINECRAFT_ACTION_SPAWN_CREEPER` |
+| `DPAD_RIGHT` | D | `MINECRAFT_ACTION_CHANGE_SKIN` |
+
+So every movement key also fired a debug action. This is the true cause of two reports that
+were misattributed to axis conventions for most of the port: the long-standing spurious
+"flying is on" was **W** toggling creative flight, and "W and D feel swapped" was W toggling
+flight while D changed skin. Movement keys now raise stick bits only; menu navigation still
+works because `ACTION_MENU_UP` and friends are mapped to `(DPAD_x | LSTICK_x)`.
+
+## Mouse look: the interface wants a stick position, not a mouse delta
+
+Three separate mistakes here, worth knowing before touching `LinuxInput.cpp`:
+
+1. **`ReadAxis()` must have no side effects.** An accumulate-and-drain-on-read design broke
+   because `Minecraft.cpp:1735` also samples RX/RY every frame for an idle check - and it is a
+   short-circuiting `||` chain starting with LY, so look input worked *only while a movement
+   key was held* (LY != 0 short-circuited before the idle check could consume the motion).
+   `Tick()` now keeps a smoothed **velocity** that any number of readers can sample harmlessly.
+2. **Velocity, not per-frame delta.** `Tick()` runs per frame (~100Hz) while `Input::tick`
+   reads at the 20Hz game tick, so overwriting each frame discarded ~4/5 of all mouse motion.
+3. **Pre-compensate for the quadratic response.** `Input.cpp:102` applies
+   `tx * abs(tx) * turnSpeed`, so passing velocity straight through felt dead when slow and
+   uncontrollable when fast. `ReadAxis` returns `sqrt(velocity * GAIN)`; the square cancels and
+   turn rate becomes linear in mouse speed. `degrees/sec = 1000 * velocity * MOUSE_LOOK_GAIN`,
+   so `MOUSE_LOOK_GAIN * 1000` is degrees-per-pixel - the one number to tune.
+
+Also: `GetJoypadStick_LY`/`RY` are **forward/up-positive**. `Input.cpp:39` assigns
+`ya = LY` unmodified and treats positive as forward, so returning SDL's or XINPUT's raw
+up-is-negative convention makes W walk backwards.
+
 ## Systemic bug class: closed-middleware seams that "obviously" collapse together
 
 The `C4JRender` API has several pairs of entry points that look interchangeable but are
@@ -17,6 +101,7 @@ confident-sounding comment, which is what made them expensive:
 | `TextureBindVertex` → same slot as `TextureBind` | It's the **lightmap**, a second slot | Everything sampled a 16×16 light texture; "no textures" |
 | `TextureSetParam` targeted the *fragment* slot | Targets whichever slot was bound last | Terrain got the lightmap's `LINEAR`/`CLAMP`; blurry blocks |
 | `StateSetFaceCullCW` → `glFrontFace` | Means "cull back faces", i.e. `glCullFace` | Front faces culled; blocks rendered inside out |
+| `MatrixPerspective` took radians | It implements `gluPerspective`, so **degrees** | ~51° FOV instead of 70°, and underwater (`fov * 60/70` = 60) `tan(30 rad)` lands past a pole so the projection inverted and collapsed - the "viewport glitches underwater" report |
 
 **The lesson that generalises: a comment asserting the interface is safe to simplify is
 not evidence.** `LinuxRender.cpp` said display lists "contain only tesselated-geometry

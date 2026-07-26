@@ -61,7 +61,7 @@ public:
 	void MatrixTranslate(float x,float y,float z);
 	void MatrixRotate(float angle, float x, float y, float z);
 	void MatrixScale(float x, float y, float z);
-	void MatrixPerspective(float fovy, float aspect, float zNear, float zFar);
+	void MatrixPerspective(float fovyDegrees, float aspect, float zNear, float zFar);	// fovy in DEGREES, as gluPerspective
 	void MatrixOrthogonal(float left,float right,float bottom,float top,float zNear,float zFar);
 	void MatrixPop();
 	void MatrixPush();
