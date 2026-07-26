@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../media/xuiscene_howtoplay_menu.h"
+#include "../Media/xuiscene_howtoplay_menu.h"
 #include "XUI_CustomMessages.h"
 
 class CScene_HowToPlayMenu : public CXuiSceneImpl

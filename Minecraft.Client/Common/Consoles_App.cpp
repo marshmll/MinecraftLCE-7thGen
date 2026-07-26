@@ -1,64 +1,64 @@
 ﻿
 #include "stdafx.h"
 
-#include "..\..\Minecraft.World\Recipy.h"
-#include "..\..\Minecraft.Client\Options.h"
-#include "..\..\Minecraft.World\AABB.h"
-#include "..\..\Minecraft.World\Vec3.h"
-#include "..\MinecraftServer.h"
-#include "..\MultiPlayerLevel.h"
-#include "..\GameRenderer.h"
-#include "..\ProgressRenderer.h"
-#include "..\..\Minecraft.Client\LevelRenderer.h"
-#include "..\..\Minecraft.Client\MobSkinMemTextureProcessor.h"
-#include "..\..\Minecraft.Client\Minecraft.h"
-#include "..\ClientConnection.h"
-#include "..\MultiPlayerLocalPlayer.h"
-#include "..\..\Minecraft.Client\LocalPlayer.h"
-#include "..\..\Minecraft.World\Player.h"
-#include "..\..\Minecraft.World\Inventory.h"
-#include "..\..\Minecraft.World\Level.h"
-#include "..\..\Minecraft.World\FurnaceTileEntity.h"
-#include "..\..\Minecraft.World\Container.h"
-#include "..\..\Minecraft.World\DispenserTileEntity.h"
-#include "..\..\Minecraft.World\SignTileEntity.h"
-#include "..\..\Minecraft.Client\StatsCounter.h"
-#include "..\GameMode.h"
-#include "..\Xbox\Social\SocialManager.h"
-#include "Tutorial\TutorialMode.h"
+#include "../../Minecraft.World/Recipy.h"
+#include "../../Minecraft.Client/Options.h"
+#include "../../Minecraft.World/AABB.h"
+#include "../../Minecraft.World/Vec3.h"
+#include "../MinecraftServer.h"
+#include "../MultiPlayerLevel.h"
+#include "../GameRenderer.h"
+#include "../ProgressRenderer.h"
+#include "../../Minecraft.Client/LevelRenderer.h"
+#include "../../Minecraft.Client/MobSkinMemTextureProcessor.h"
+#include "../../Minecraft.Client/Minecraft.h"
+#include "../ClientConnection.h"
+#include "../MultiPlayerLocalPlayer.h"
+#include "../../Minecraft.Client/LocalPlayer.h"
+#include "../../Minecraft.World/Player.h"
+#include "../../Minecraft.World/Inventory.h"
+#include "../../Minecraft.World/Level.h"
+#include "../../Minecraft.World/FurnaceTileEntity.h"
+#include "../../Minecraft.World/Container.h"
+#include "../../Minecraft.World/DispenserTileEntity.h"
+#include "../../Minecraft.World/SignTileEntity.h"
+#include "../../Minecraft.Client/StatsCounter.h"
+#include "../GameMode.h"
+#include "../Xbox/Social/SocialManager.h"
+#include "Tutorial/TutorialMode.h"
 #if defined _XBOX || defined _WINDOWS64
-#include "..\..\Minecraft.Client\Xbox\XML\ATGXmlParser.h"
-#include "..\..\Minecraft.Client\Xbox\XML\xmlFilesCallback.h"
+#include "../../Minecraft.Client/Xbox/XML/ATGXmlParser.h"
+#include "../../Minecraft.Client/Xbox/XML/xmlFilesCallback.h"
 #endif
 #include "Minecraft_Macros.h"
-#include "..\..\Minecraft.Client\PlayerList.h"
-#include "..\..\Minecraft.Client\ServerPlayer.h"
-#include "GameRules\ConsoleGameRules.h"
-#include "GameRules\ConsoleSchematicFile.h"
-#include "..\..\Minecraft.World\InputOutputStream.h"
-#include "..\..\Minecraft.World\LevelSettings.h"
-#include "..\User.h"
-#include "..\..\Minecraft.World\LevelData.h"
-#include "..\..\Minecraft.World\net.minecraft.world.entity.player.h"
-#include "..\..\Minecraft.Client\EntityRenderDispatcher.h"
-#include "..\..\Minecraft.World\compression.h"
-#include "..\TexturePackRepository.h"
-#include "..\DLCTexturePack.h"
-#include "DLC\DLCPack.h"
-#include "..\StringTable.h"
+#include "../../Minecraft.Client/PlayerList.h"
+#include "../../Minecraft.Client/ServerPlayer.h"
+#include "GameRules/ConsoleGameRules.h"
+#include "GameRules/ConsoleSchematicFile.h"
+#include "../../Minecraft.World/InputOutputStream.h"
+#include "../../Minecraft.World/LevelSettings.h"
+#include "../User.h"
+#include "../../Minecraft.World/LevelData.h"
+#include "../../Minecraft.World/net.minecraft.world.entity.player.h"
+#include "../../Minecraft.Client/EntityRenderDispatcher.h"
+#include "../../Minecraft.World/compression.h"
+#include "../TexturePackRepository.h"
+#include "../DLCTexturePack.h"
+#include "DLC/DLCPack.h"
+#include "../StringTable.h"
 #ifndef _XBOX
-#include "..\ArchiveFile.h"
+#include "../ArchiveFile.h"
 #endif
-#include "..\Minecraft.h"
+#include "../Minecraft.h"
 #ifdef _XBOX
-#include "..\Xbox\GameConfig\Minecraft.spa.h"
-#include "..\Xbox\Network\NetworkPlayerXbox.h"
-#include "XUI\XUI_TextEntry.h"
-#include "XUI\XUI_XZP_Icons.h"
-#include "XUI\XUI_PauseMenu.h"
+#include "../Xbox/GameConfig/Minecraft.spa.h"
+#include "../Xbox/Network/NetworkPlayerXbox.h"
+#include "XUI/XUI_TextEntry.h"
+#include "XUI/XUI_XZP_Icons.h"
+#include "XUI/XUI_PauseMenu.h"
 #else
-#include "UI\UI.h"
-#include "UI\UIScene_PauseMenu.h"
+#include "UI/UI.h"
+#include "UI/UIScene_PauseMenu.h"
 #endif
 #ifdef __PS3__
 #include <sys/tty.h>
@@ -67,7 +67,7 @@
 #include <save_data_dialog.h>
 #endif
 
-#include "..\Common\Leaderboards\LeaderboardManager.h"
+#include "../Common/Leaderboards/LeaderboardManager.h"
 
 //CMinecraftApp app;
 unsigned int CMinecraftApp::m_uiLastSignInData = 0;
@@ -4093,6 +4093,14 @@ void CMinecraftApp::loadMediaArchive()
 	mediapath = L"Common\\Media\\MediaDurango.arc";
 #elif __PSVITA__
 	mediapath = L"Common\\Media\\MediaPSVita.arc";
+#elif defined _LINUX64
+	// No Linux-specific media archive exists (nor would one - this is just an
+	// asset container format, not platform-coupled code); reused from
+	// Windows64 same as the 4J_Render.h/4J_Storage.h middleware headers.
+	// Forward slash, unlike the other branches above: File's underlying
+	// open() is real POSIX on Linux (LinuxStubs.h), which treats '\' as a
+	// literal filename character, not a path separator.
+	mediapath = L"Common/Media/MediaWindows64.arc";
 #endif
 
 	if (!mediapath.empty()) 
@@ -5215,7 +5223,7 @@ int CMinecraftApp::DLCMountedCallback(LPVOID pParam,int iPad,DWORD dwErr,DWORD d
  {
 	 DWORD dwFilesProcessed = 0;
 #ifndef _XBOX
-#if defined(__PS3__) || defined(__ORBIS__) || defined(_WINDOWS64) || defined (__PSVITA__)
+#if defined(__PS3__) || defined(__ORBIS__) || defined(_WINDOWS64) || defined (__PSVITA__) || defined(_LINUX64)
 	 std::vector<std::string> dlcFilenames;
 #elif defined _DURANGO
 	 std::vector<std::wstring> dlcFilenames;
@@ -5538,7 +5546,7 @@ int CMinecraftApp::GetTPConfigVal(WCHAR *pwchDataFile)
 
 	return -1;
 }
-#elif defined _WINDOWS64
+#elif defined _WINDOWS64 || defined _LINUX64
 int CMinecraftApp::GetTPConfigVal(WCHAR *pwchDataFile)
 {
 	return -1;
@@ -6509,7 +6517,7 @@ HRESULT CMinecraftApp::RegisterConfigValues(WCHAR *pType, int iValue)
 	return hr;
 }
 
-#if (defined _XBOX || defined _WINDOWS64)
+#if (defined _XBOX || defined _WINDOWS64 || defined _LINUX64)
 HRESULT CMinecraftApp::RegisterDLCData(WCHAR *pType, WCHAR *pBannerName, int iGender, __uint64 ullOfferID_Full, __uint64 ullOfferID_Trial, WCHAR *pFirstSkin, unsigned int uiSortIndex, int iConfig, WCHAR *pDataFile)
 {
 	HRESULT hr=S_OK;
@@ -6525,13 +6533,18 @@ HRESULT CMinecraftApp::RegisterDLCData(WCHAR *pType, WCHAR *pBannerName, int iGe
 #ifndef __ORBIS__
 	// ignore the names if we don't recognize them
 	if(pBannerName!=L"")
-	{	
-		wcsncpy_s( pDLCData->wchBanner, pBannerName, MAX_BANNERNAME_SIZE);
+	{
+		// MSVC's array-deducing wcsncpy_s overload lets Windows64 call this
+		// with 3 args (dest size inferred from the wchBanner[] array);
+		// LinuxStubs.h's shim is a plain 4-arg macro, so pass the size
+		// explicitly here (same MAX_BANNERNAME_SIZE the count arg already
+		// uses - this is copying into a MAX_BANNERNAME_SIZE-sized buffer).
+		wcsncpy_s( pDLCData->wchBanner, MAX_BANNERNAME_SIZE, pBannerName, MAX_BANNERNAME_SIZE);
 	}
 
 	if(pDataFile[0]!=0)
-	{	
-		wcsncpy_s( pDLCData->wchDataFile, pDataFile, MAX_BANNERNAME_SIZE);
+	{
+		wcsncpy_s( pDLCData->wchDataFile, MAX_BANNERNAME_SIZE, pDataFile, MAX_BANNERNAME_SIZE);
 	}
 #endif
 

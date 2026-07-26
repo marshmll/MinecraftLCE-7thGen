@@ -4,38 +4,46 @@
 #endif // __PS3__
 
 #ifdef __PS3__
-#include "PS3\Sentient\SentientManager.h"
+#include "PS3/Sentient/SentientManager.h"
 #include "StatsCounter.h"
-#include "PS3\Social\SocialManager.h"
+#include "PS3/Social/SocialManager.h"
 #include <libsn.h>
 #include <libsntuner.h>
 #elif defined _DURANGO
-#include "Durango\Sentient\SentientManager.h"
+#include "Durango/Sentient/SentientManager.h"
 #include "StatsCounter.h"
-#include "Durango\Social\SocialManager.h"
-#include "Durango\Sentient\DynamicConfigurations.h"
-#include "Durango\DurangoExtras\xcompress.h"
+#include "Durango/Social/SocialManager.h"
+#include "Durango/Sentient/DynamicConfigurations.h"
+#include "Durango/DurangoExtras/xcompress.h"
 #elif defined _WINDOWS64
-#include "Windows64\Sentient\SentientManager.h"
+#include "Windows64/Sentient/SentientManager.h"
 #include "StatsCounter.h"
-#include "Windows64\Social\SocialManager.h"
-#include "Windows64\Sentient\DynamicConfigurations.h"
+#include "Windows64/Social/SocialManager.h"
+#include "Windows64/Sentient/DynamicConfigurations.h"
+#elif defined _LINUX64
+// Reused from Windows64: none of these declare anything Windows-specific
+// (SentientManager/SocialManager are already stubbed below; Sentient is
+// trivial per the Phase 7 plan - one live non-console call site repo-wide).
+#include "Windows64/Sentient/SentientManager.h"
+#include "StatsCounter.h"
+#include "Windows64/Social/SocialManager.h"
+#include "Windows64/Sentient/DynamicConfigurations.h"
 #elif defined __PSVITA__
-#include "PSVita\Sentient\SentientManager.h"
+#include "PSVita/Sentient/SentientManager.h"
 #include "StatsCounter.h"
-#include "PSVita\Social\SocialManager.h"
-#include "PSVita\Sentient\DynamicConfigurations.h"
+#include "PSVita/Social/SocialManager.h"
+#include "PSVita/Sentient/DynamicConfigurations.h"
 #include <libperf.h>
 #else
-#include "Orbis\Sentient\SentientManager.h"
+#include "Orbis/Sentient/SentientManager.h"
 #include "StatsCounter.h"
-#include "Orbis\Social\SocialManager.h"
-#include "Orbis\Sentient\DynamicConfigurations.h"
+#include "Orbis/Social/SocialManager.h"
+#include "Orbis/Sentient/DynamicConfigurations.h"
 #include <perf.h>
 #endif
 
 #if !defined(__PS3__) && !defined(__ORBIS__) && !defined(__PSVITA__)
-#ifdef _WINDOWS64
+#if defined(_WINDOWS64) || defined(_LINUX64)
 //C4JStorage StorageManager;
 C_4JProfile ProfileManager;
 #endif
@@ -380,7 +388,7 @@ DWORD XEnableGuestSignin(BOOL fEnable) { return 0; }
 
 
 /////////////////////////////////////////////// Profile library
-#ifdef _WINDOWS64
+#if defined(_WINDOWS64) || defined(_LINUX64)
 static void *profileData[4];
 static bool s_bProfileIsFullVersion;
 void				C_4JProfile::Initialise( DWORD dwTitleID,

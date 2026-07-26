@@ -1,22 +1,28 @@
 ﻿#include "stdafx.h"
 
 #include "SoundEngine.h"
-#include "..\Consoles_App.h"
-#include "..\..\MultiplayerLocalPlayer.h"
-#include "..\..\..\Minecraft.World\net.minecraft.world.level.h"
-#include "..\..\Minecraft.World\leveldata.h"
-#include "..\..\Minecraft.World\mth.h"
-#include "..\..\TexturePackRepository.h"
-#include "..\..\DLCTexturePack.h"
-#include "Common\DLC\DLCAudioFile.h"
+#include "../Consoles_App.h"
+#include "../../MultiPlayerLocalPlayer.h"
+#include "../../../Minecraft.World/net.minecraft.world.level.h"
+#include "../../Minecraft.World/LevelData.h"
+#include "../../Minecraft.World/Mth.h"
+#include "../../TexturePackRepository.h"
+#include "../../DLCTexturePack.h"
+#include "Common/DLC/DLCAudioFile.h"
 
 #ifdef __PSVITA__
 #include <audioout.h>
 #endif
 
 #ifdef _WINDOWS64
-#include "..\..\Minecraft.Client\Windows64\Windows64_App.h"
-#include "..\..\Minecraft.Client\Windows64\Miles\include\imssapi.h"
+#include "../../Minecraft.Client/Windows64/Windows64_App.h"
+#include "../../Minecraft.Client/Windows64/Miles/include/imssapi.h"
+#elif defined _LINUX64
+// LinuxAudioShim.h is a signature-compatible AIL_*/mss.h shim backed by
+// OpenAL-soft (built in Phase 5) - see that header for scope/fidelity notes.
+// `app` comes in via stdafx.h's Linux_MinecraftApp.h, same as every other
+// platform gets it from its own *_App.h here.
+#include "../../Minecraft.Client/Linux/LinuxExtras/LinuxAudioShim.h"
 #endif
 
 #ifdef __ORBIS__
@@ -58,6 +64,10 @@ void SoundEngine::playMusicTick() {};
 #ifdef _WINDOWS64
 char SoundEngine::m_szSoundPath[]={"Durango\\Sound\\"};
 char SoundEngine::m_szMusicPath[]={"music\\"};
+char SoundEngine::m_szRedistName[]={"redist64"};
+#elif defined _LINUX64
+char SoundEngine::m_szSoundPath[]={"Sound/"};
+char SoundEngine::m_szMusicPath[]={"music/"};
 char SoundEngine::m_szRedistName[]={"redist64"};
 #elif defined _DURANGO
 char SoundEngine::m_szSoundPath[]={"Sound\\"};
@@ -216,7 +226,7 @@ void SoundEngine::init(Options *pOptions)
 
 	char *redistpath;
 
-#if (defined _WINDOWS64 || defined __PSVITA__)// || defined _DURANGO || defined __ORBIS__ )
+#if (defined _WINDOWS64 || defined _LINUX64 || defined __PSVITA__)// || defined _DURANGO || defined __ORBIS__ )
 	redistpath=AIL_set_redist_directory(m_szRedistName);
 #endif
 

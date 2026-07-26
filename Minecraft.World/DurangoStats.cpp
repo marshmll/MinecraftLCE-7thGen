@@ -1,5 +1,16 @@
 #include "stdafx.h"
 
+// This file is Xbox One/Durango-specific (uses ETW telemetry macros from
+// Durango's XDK via Events-XBLA.8-149E11AEEvents.h unconditionally, with no
+// per-platform guards anywhere in the body) and was apparently never
+// excluded from the build for other platforms in the vcxproj (there are no
+// ExcludedFromBuild entries anywhere in this project) - i.e. this gap
+// predates the Linux port and would reproduce identically on Windows64/PS3/
+// Orbis/PSVita/Xbox 360. GenericStats::setInstance() in Minecraft.World.cpp
+// already only instantiates DurangoStats under #ifdef _DURANGO, so excluding
+// this file's body outside Durango is safe.
+#ifdef _DURANGO
+
 #include "ItemStat.h"
 
 #include "Achievement.h"
@@ -12,16 +23,16 @@
 #include "Item.h"
 #include "Level.h"
 
-#include "..\Minecraft.Client\Minecraft.h"
+#include "../Minecraft.Client/Minecraft.h"
 #include "LevelData.h"
 #include "LevelSettings.h"
 
-#include "..\Minecraft.Client\LocalPlayer.h"
-#include "..\Minecraft.Client\MultiPlayerLocalPlayer.h"
+#include "../Minecraft.Client/LocalPlayer.h"
+#include "../Minecraft.Client/MultiPlayerLocalPlayer.h"
 
 #include "EntityIO.h"
 
-#include "..\Minecraft.Client\Durango\ServiceConfig\Events-XBLA.8-149E11AEEvents.h"
+#include "../Minecraft.Client/Durango/ServiceConfig/Events-XBLA.8-149E11AEEvents.h"
 
 #include "DurangoStats.h"
 
@@ -1219,3 +1230,4 @@ void DurangoStats::playerSessionEnd(int iPad)
 		DurangoStats::getInstance()->travel->flush(plr);
 	}
 }
+#endif // _DURANGO

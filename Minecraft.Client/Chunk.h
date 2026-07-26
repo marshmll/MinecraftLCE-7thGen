@@ -1,7 +1,7 @@
 #pragma once
 #include "AllowAllCuller.h"
 #include "Tesselator.h"
-#include "..\Minecraft.World\ArrayWithLength.h"
+#include "../Minecraft.World/ArrayWithLength.h"
 #include "LevelRenderer.h"
 
 class Level;
@@ -48,6 +48,13 @@ public:
  
     int xm, ym, zm;
     AABB *bb;
+	// Whether this Chunk owns *bb and must therefore delete it. Real chunks
+	// allocate it in setPos() (Chunk.cpp:106) and own it; the rebuild scratch
+	// copies made by makeCopyForRebuild() only alias the source's pointer, and
+	// default-constructed chunks have none at all. Without this distinction
+	// ~Chunk()'s "delete bb" either frees an uninitialised pointer or
+	// double-frees the source chunk's AABB.
+	bool ownsBB;
 	ClipChunk *clipChunk;
 
     int id;

@@ -2,16 +2,16 @@
 #include "Chunk.h"
 #include "TileRenderer.h"
 #include "TileEntityRenderDispatcher.h"
-#include "..\Minecraft.World\net.minecraft.world.level.h"
-#include "..\Minecraft.World\net.minecraft.world.level.chunk.h"
-#include "..\Minecraft.World\net.minecraft.world.level.tile.h"
-#include "..\Minecraft.World\net.minecraft.world.level.tile.entity.h"
+#include "../Minecraft.World/net.minecraft.world.level.h"
+#include "../Minecraft.World/net.minecraft.world.level.chunk.h"
+#include "../Minecraft.World/net.minecraft.world.level.tile.h"
+#include "../Minecraft.World/net.minecraft.world.level.tile.entity.h"
 #include "LevelRenderer.h"
 
 #ifdef __PS3__
-#include "PS3\SPU_Tasks\ChunkUpdate\ChunkRebuildData.h"
-#include "PS3\SPU_Tasks\ChunkUpdate\TileRenderer_SPU.h"
-#include "PS3\SPU_Tasks\CompressedTile\CompressedTileStorage_SPU.h"
+#include "PS3/SPU_Tasks/ChunkUpdate/ChunkRebuildData.h"
+#include "PS3/SPU_Tasks/ChunkUpdate/TileRenderer_SPU.h"
+#include "PS3/SPU_Tasks/CompressedTile/CompressedTileStorage_SPU.h"
 
 #include "C4JThread_SPU.h"
 #include "C4JSpursJob.h"
@@ -31,7 +31,9 @@ void Chunk::CreateNewThreadStorage()
 void Chunk::ReleaseThreadStorage()
 {
 	unsigned char *tileIds = (unsigned char *)TlsGetValue(tlsIdx);
-	delete tileIds;
+	// tileIds is allocated with array new (CreateNewThreadStorage above) -
+	// same mismatched new[]/delete bug as TileRenderer::cache.
+	delete[] tileIds;
 }
 
 unsigned char *Chunk::GetTileIdsStorage()
@@ -51,6 +53,7 @@ Chunk::Chunk(Level *level, LevelRenderer::rteMap &globalRenderableTileEntities, 
 {
 	clipChunk->visible = false;
 	bb = NULL;
+	ownsBB = true;		// setPos() below allocates bb, and this chunk owns it
 	id = 0;
 
 	this->level = level;
@@ -152,6 +155,18 @@ void Chunk::translateToPos()
 
 Chunk::Chunk()
 {
+	// Only used for LevelRenderer::permaChunk[] - the rebuild scratch copies,
+	// which own nothing. Leaving the pointer members uninitialised meant
+	// ~Chunk()'s "delete bb" freed whatever happened to be in that memory when
+	// the static array was destroyed at exit; glibc detects that and aborts.
+	bb = NULL;
+	ownsBB = false;
+	clipChunk = NULL;
+	level = NULL;
+	globalRenderableTileEntities = NULL;
+	globalRenderableTileEntities_cs = NULL;
+	assigned = false;
+	id = 0;
 }
 
 void Chunk::makeCopyForRebuild(Chunk *source)
@@ -169,7 +184,11 @@ void Chunk::makeCopyForRebuild(Chunk *source)
 	this->xm = source->xm;
 	this->ym = source->ym;
 	this->zm = source->zm;
+	// Deliberately an alias, not a handover: rebuild() writes the recomputed
+	// bounds back through it (Chunk.cpp "if (bb) bb->set(...)") so they land on
+	// the real chunk. The source keeps ownership.
 	this->bb = source->bb;
+	this->ownsBB = false;
 	this->clipChunk = NULL;
 	this->id = source->id;
 	this->globalRenderableTileEntities = source->globalRenderableTileEntities;
@@ -1036,7 +1055,8 @@ void Chunk::clearDirty()
 
 Chunk::~Chunk()
 {
-	delete bb;
+	if (ownsBB)
+		delete bb;
 }
 
 bool Chunk::emptyFlagSet(int layer)

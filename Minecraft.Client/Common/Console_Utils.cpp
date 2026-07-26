@@ -5,7 +5,13 @@
 // Desc: Internal helper function
 //--------------------------------------------------------------------------------------
 #ifndef _CONTENT_PACKAGE
-static VOID DebugSpewV( const CHAR* strFormat, const va_list pArgList )
+// `const va_list` on the caller side yields a const-qualified decayed
+// pointer on some libc va_list representations (e.g. glibc's array-typed
+// va_list), which doesn't bind to vsnprintf/_vsnprintf_s's non-const
+// va_list parameter - dropping the (essentially meaningless, since the
+// callee only ever reads through it once) const here rather than
+// contorting the Linux shim to accept it.
+static VOID DebugSpewV( const CHAR* strFormat, va_list pArgList )
 {
 #if defined __PS3__ || defined __ORBIS__ || defined __PSVITA__
 	assert(0);

@@ -1,14 +1,14 @@
 #include "stdafx.h"
-#include "..\..\..\Minecraft.World\compression.h"
-#include "..\..\..\Minecraft.World\StringHelpers.h"
-#include "..\..\..\Minecraft.World\File.h"
-#include "..\..\..\Minecraft.World\compression.h"
-#include "..\DLC\DLCPack.h"
-#include "..\DLC\DLCLocalisationFile.h"
-#include "..\DLC\DLCGameRulesFile.h"
-#include "..\DLC\DLCGameRules.h"
-#include "..\DLC\DLCGameRulesHeader.h"
-#include "..\..\StringTable.h"
+#include "../../../Minecraft.World/compression.h"
+#include "../../../Minecraft.World/StringHelpers.h"
+#include "../../../Minecraft.World/File.h"
+#include "../../../Minecraft.World/compression.h"
+#include "../DLC/DLCPack.h"
+#include "../DLC/DLCLocalisationFile.h"
+#include "../DLC/DLCGameRulesFile.h"
+#include "../DLC/DLCGameRules.h"
+#include "../DLC/DLCGameRulesHeader.h"
+#include "../../StringTable.h"
 #include "ConsoleGameRules.h"
 #include "GameRuleManager.h"
 
@@ -656,6 +656,20 @@ void GameRuleManager::loadDefaultGameRules()
 	//}
 	//delete packFiles;
 #endif
+
+#elif defined _LINUX64
+	// DLCManager::readDLCDataFile parses Tutorial.pck as a raw packed binary
+	// blob (DLC_FILE_DETAILS/DLC_FILE_PARAM with flexible WCHAR[] members),
+	// walked via pointer arithmetic keyed on sizeof(WCHAR). That format was
+	// authored on Windows, where WCHAR/wchar_t is 2 bytes (UTF-16); on
+	// Linux/GCC, wchar_t (and therefore WCHAR, typedef'd to it in
+	// LinuxTypes.h for real Unicode wstring support elsewhere) is 4 bytes.
+	// Every offset the parser computes doubles versus the on-disk layout,
+	// walking off into garbage - the SIGSEGV this replaces. Redefining WCHAR
+	// as a real 2-byte type on Linux would ripple through every wstring-based
+	// text/localisation code path; out of scope for getting to a real boot.
+	// Tutorial-mode content, not core world/gameplay - skipped rather than
+	// silently misparsed, same reasoning as Storage's other DLC/TMS stubs.
 
 #else // _XBOX
 

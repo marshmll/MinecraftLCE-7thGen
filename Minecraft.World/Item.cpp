@@ -950,7 +950,14 @@ void Item::registerIcons(IconRegister *iconRegister)
 	4J: These are necesary on the PS3.
 		(and 4 and Vita).
 */
-#if (defined __PS3__ || defined __ORBIS__ || defined __PSVITA__)
+// 4J's own comment says these are "necessary on the PS3 (and 4 and Vita)" -
+// i.e. GCC/Clang (unlike MSVC) enforce the standard's ODR-use rule strictly
+// enough to require these out-of-line definitions once something takes a
+// reference/address of a `static const int` class member. Linux uses GCC
+// too, so it needs them for exactly the same reason - not a Linux-specific
+// gap, the same MSVC-vs-strict-compiler dialect difference as this port's
+// -Wtemplate-body suppression elsewhere.
+#if (defined __PS3__ || defined __ORBIS__ || defined __PSVITA__ || defined _LINUX64)
 const int Item::shovel_iron_Id		;
 const int Item::pickAxe_iron_Id		;
 const int Item::hatchet_iron_Id		;

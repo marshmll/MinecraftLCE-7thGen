@@ -415,3 +415,5 @@ Minecraft.Client/Saves/*
 !x64/**/Effects.msscmp
 !x64/**/iggy_w64.dll
 !x64/**/mss64.dll
+
+build/

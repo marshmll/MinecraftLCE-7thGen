@@ -51,6 +51,9 @@ int RemoveEntitiesPacket::getEstimatedSize()
 	4J: These are necesary on the PS3.
 		(and 4).
 */
-#if (defined __PS3__ || defined __ORBIS__ || defined __PSVITA__)
+// GCC (Linux) enforces the same strict ODR rule these consoles' toolchains
+// do - widened rather than left PS3/Orbis/PSVita-only (see Tile.cpp's
+// identical fix for the same underlying gap).
+#if (defined __PS3__ || defined __ORBIS__ || defined __PSVITA__ || defined _LINUX64)
 const int RemoveEntitiesPacket::MAX_PER_PACKET;
 #endif

@@ -1922,4 +1922,15 @@
 #define IDS_YES 1920
 #define IDS_YOU_DIED 1921
 #define IDS_YOU_HAVE 1922
+
+// Genuinely missing from this file (present in Orbis/PS3/PSVita's strings.h,
+// referenced unconditionally from Minecraft.cpp/GameNetworkManager.cpp/
+// Consoles_App.cpp/several UIScene_*.cpp) - a pre-existing gap uncovered by
+// the Linux port (Windows64's own vcxproj apparently never compiled the
+// call sites that need these). Values are placeholders (Iggy/message-box
+// text display is out of scope for Phase 7 - see LinuxUIController.h) but
+// must be unique for the build to link.
+#define IDS_CONTENT_RESTRICTION 1923
+#define IDS_CONTENT_RESTRICTION_MULTIPLAYER 1924
+#define IDS_CONTENT_RESTRICTION_PATCH_AVAILABLE 1925
 #define IDS_ZOMBIE 1923

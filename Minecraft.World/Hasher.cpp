@@ -1,5 +1,13 @@
 #include "stdafx.h"
+
+#ifdef _LINUX64
+// <xhash> is an MSVC-STL-only header (stdext::hash_value et al.). Provide an
+// equivalent free function backed by std::hash instead of pulling that in.
+#include <functional>
+static size_t hash_value(const wstring &s) { return std::hash<wstring>()(s); }
+#else
 #include <xhash>
+#endif
 
 #include "Hasher.h"
 

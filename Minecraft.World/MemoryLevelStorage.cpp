@@ -52,12 +52,33 @@ bool MemoryLevelStorage::load(shared_ptr<Player> player)
 	return false;
 }
 
-CompoundTag *MemoryLevelStorage::loadPlayerDataTag(const wstring& playerName) 
+CompoundTag *MemoryLevelStorage::loadPlayerDataTag(PlayerUID xuid)
 {
 	return NULL;
 }
 
-ConsoleSavePath MemoryLevelStorage::getDataFile(const wstring& id) 
+ConsoleSavePath MemoryLevelStorage::getDataFile(const wstring& id)
 {
-	return ConsoleSaveFile(wstring(L""));
+	return ConsoleSavePath(wstring(L""));
+}
+
+wstring MemoryLevelStorage::getLevelId()
+{
+	return L"none";
+}
+
+void MemoryLevelStorage::clearOldPlayerFiles()
+{
+}
+
+void MemoryLevelStorage::saveMapIdLookup()
+{
+}
+
+void MemoryLevelStorage::deleteMapFilesForPlayer(shared_ptr<Player> player)
+{
+}
+
+void MemoryLevelStorage::saveAllCachedData()
+{
 }

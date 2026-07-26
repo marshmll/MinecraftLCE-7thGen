@@ -4,11 +4,11 @@
 #include "GameRenderer.h"
 #include "Minecraft.h"
 #include "Textures.h"
-#include "..\Minecraft.World\net.minecraft.world.level.h"
-#include "..\Minecraft.World\net.minecraft.world.level.tile.h"
-#include "..\Minecraft.World\net.minecraft.world.level.material.h"
-#include "..\Minecraft.World\net.minecraft.h"
-#include "..\Minecraft.World\net.minecraft.world.h"
+#include "../Minecraft.World/net.minecraft.world.level.h"
+#include "../Minecraft.World/net.minecraft.world.level.tile.h"
+#include "../Minecraft.World/net.minecraft.world.level.material.h"
+#include "../Minecraft.World/net.minecraft.h"
+#include "../Minecraft.World/net.minecraft.world.h"
 #include "Tesselator.h"
 #include "EntityTileRenderer.h"
 #include "Options.h"
@@ -160,7 +160,12 @@ TileRenderer::TileRenderer( LevelSource* level, int xMin, int yMin, int zMin, un
 
 TileRenderer::~TileRenderer()
 {
-	delete cache;
+	// cache is allocated with array new (see the constructor above) - plain
+	// delete on it is undefined behavior (mismatched new[]/delete). MSVC's
+	// allocator tolerated it silently; glibc's doesn't, and corrupts its
+	// heap metadata immediately, surfacing later as an unrelated free()
+	// abort - this is what that was.
+	delete[] cache;
 }
 
 TileRenderer::TileRenderer( LevelSource* level )

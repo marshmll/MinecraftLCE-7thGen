@@ -1481,7 +1481,15 @@ int Tile::SoundType::getPlaceSound() const
 	4J: These are necessary on the PS3.
 		(and 4 and Vita).
 */
-#if (defined __PS3__ || defined __ORBIS__ || defined __PSVITA__)
+// Originally PS3/Orbis/PSVita-only: those toolchains enforce strict ODR
+// (an out-of-class definition is required for any static const member whose
+// address is ever taken, e.g. Villager.cpp's MIN_MAX_PRICES[Tile::xxx_Id]
+// map indexing), while MSVC tolerates the missing definition. GCC (Linux)
+// enforces it just as strictly, so this pre-existing gap surfaces the same
+// way once Minecraft.Client is actually linked in (Phase 7) - widened
+// rather than left PS3/Orbis/PSVita-only. Content is plain, platform-
+// agnostic declarations, safe to compile everywhere.
+#if (defined __PS3__ || defined __ORBIS__ || defined __PSVITA__ || defined _LINUX64)
 const int Tile::rock_Id;
 const int Tile::grass_Id;
 const int Tile::dirt_Id;

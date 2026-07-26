@@ -202,6 +202,13 @@ bool UILayer::GetMenuDisplayed()
 bool UILayer::NavigateToScene(int iPad, EUIScene scene, void *initData)
 {
 	UIScene *newScene = NULL;
+	// Phase 7 (Linux port): none of the concrete UIScene_*/IUIScene_* classes
+	// this switch instantiates are compiled for Linux (they're Iggy-backed
+	// menu/pause/inventory screens, out of scope - see the plan's Phase 7/8
+	// split). newScene staying NULL falls through to the existing "scene not
+	// created" warning+return-false path below, which every platform already
+	// relies on for unhandled scene types.
+#if !defined(_LINUX64)
 	switch(scene)
 	{
 		// Debug
@@ -405,6 +412,7 @@ bool UILayer::NavigateToScene(int iPad, EUIScene scene, void *initData)
 		newScene = new UIScene_Timer(iPad, initData, this);
 		break;
 	};
+#endif // !_LINUX64
 
 	if(newScene == NULL)
 	{
@@ -509,6 +517,11 @@ UIScene *UILayer::addComponent(int iPad, EUIScene scene, void *initData)
 	}
 	UIScene *newScene = NULL;
 
+	// Phase 7 (Linux port): same reasoning as UILayer::NavigateToScene above -
+	// these UIComponent_*/UIScene_HUD classes are Iggy-backed and out of
+	// scope; newScene staying NULL falls through to the existing
+	// "return NULL" path below.
+#if !defined(_LINUX64)
 	switch(scene)
 	{
 	case eUIComponent_Panorama:
@@ -554,6 +567,7 @@ UIScene *UILayer::addComponent(int iPad, EUIScene scene, void *initData)
 		m_componentRefCount[scene] = pair<int,bool>(1,true);
 		break;
 	};
+#endif // !_LINUX64
 
 	if(newScene == NULL) return NULL;
 

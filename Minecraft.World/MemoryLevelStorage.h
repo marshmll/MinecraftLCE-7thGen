@@ -26,6 +26,11 @@ public:
     virtual void closeAll();
     virtual void save(shared_ptr<Player> player);
     virtual bool load(shared_ptr<Player> player);
-    virtual CompoundTag *loadPlayerDataTag(const wstring& playerName);
+    virtual CompoundTag *loadPlayerDataTag(PlayerUID xuid);
     virtual ConsoleSavePath getDataFile(const wstring& id);
+    virtual wstring getLevelId();
+    virtual void clearOldPlayerFiles();
+    virtual void saveMapIdLookup();
+    virtual void deleteMapFilesForPlayer(shared_ptr<Player> player);
+    virtual void saveAllCachedData();
 };

@@ -957,7 +957,7 @@ ShapedRecipy *Recipes::addShapedRecipy(ItemInstance *result, ...)
 
 	wchTypes = va_arg(vl,wchar_t *);
 
-	for(int i = 0; wchTypes[i] != L'\0'; ++i ) 
+	for(int i = 0; wchTypes[i] != L'\0'; ++i )
 	{
 		if(wchTypes[i+1]==L'\0' && wchTypes[i]!=L'g')
 		{
@@ -997,7 +997,14 @@ ShapedRecipy *Recipes::addShapedRecipy(ItemInstance *result, ...)
 
 			break;
 		case L'c':
-			wchFrom=va_arg(vl,wchar_t);
+			// va_arg(vl,wchar_t) crashed (SIGILL) under this GCC/x86-64 build -
+			// wchar_t is a distinct type from int here (unlike MSVC, where the
+			// two happened to line up), and reading a va_arg with a type other
+			// than the one its default-argument-promoted value was stored as
+			// is undefined behaviour. Reading as int (which every wchar_t
+			// argument here genuinely promotes/widens to be stored as) and
+			// narrowing is the standard-conforming fix.
+			wchFrom=(wchar_t)va_arg(vl,int);
 			break;
 		case L'z':
 			pItemInstance=va_arg(vl,ItemInstance *);
@@ -1014,7 +1021,7 @@ ShapedRecipy *Recipes::addShapedRecipy(ItemInstance *result, ...)
 			mappings->insert(myMap::value_type(wchFrom,pItemInstance));
 			break;
 		case L'g':
-			wchFrom=va_arg(vl,wchar_t);
+			wchFrom=(wchar_t)va_arg(vl,int);
 			switch(wchFrom)
 			{
 // 			case L'W':
@@ -1112,7 +1119,7 @@ void Recipes::addShapelessRecipy(ItemInstance *result,... )
 			ingredients->push_back(new ItemInstance(pTile));
 			break;
 		case L'g':
-			wchFrom=va_arg(vl,wchar_t);
+			wchFrom=(wchar_t)va_arg(vl,int);
 			switch(wchFrom)
 			{
 

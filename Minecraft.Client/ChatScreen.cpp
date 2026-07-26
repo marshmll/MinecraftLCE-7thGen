@@ -1,10 +1,14 @@
 #include "stdafx.h"
 #include "ChatScreen.h"
-#include "MultiplayerLocalPlayer.h"
-#include "..\Minecraft.World\SharedConstants.h"
-#include "..\Minecraft.World\StringHelpers.h"
+#include "MultiPlayerLocalPlayer.h"
+#include "../Minecraft.World/SharedConstants.h"
+#include "../Minecraft.World/StringHelpers.h"
 
-const wstring ChatScreen::allowedChars = SharedConstants::acceptableLetters;
+const wstring &ChatScreen::getAllowedChars()
+{
+	static const wstring allowedChars = SharedConstants::acceptableLetters;
+	return allowedChars;
+}
 
 ChatScreen::ChatScreen()
 {
@@ -48,7 +52,7 @@ void ChatScreen::keyPressed(wchar_t ch, int eventKey)
         return;
     }
     if (eventKey == Keyboard::KEY_BACK && message.length() > 0) message = message.substr(0, message.length() - 1);
-    if (allowedChars.find(ch) >= 0 && message.length() < SharedConstants::maxChatLength)
+    if (getAllowedChars().find(ch) >= 0 && message.length() < SharedConstants::maxChatLength)
 	{
         message += ch;
     }

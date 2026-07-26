@@ -3,10 +3,15 @@
 #include "DemoMode.h"
 #include "LevelRenderer.h"
 #include "LocalPlayer.h"
-#include "..\Minecraft.World\net.minecraft.world.level.h"
-#include "..\Minecraft.World\net.minecraft.world.level.tile.h"
-#include "..\Minecraft.World\net.minecraft.world.entity.player.h"
-#include "..\Minecraft.World\net.minecraft.world.item.h"
+// minecraft->level/minecraft->player are MultiPlayerLevel*/
+// shared_ptr<MultiPlayerLocalPlayer> (see Minecraft.h) - full definitions
+// needed here for the Level*/Player* base-class conversions below.
+#include "MultiPlayerLevel.h"
+#include "MultiPlayerLocalPlayer.h"
+#include "../Minecraft.World/net.minecraft.world.level.h"
+#include "../Minecraft.World/net.minecraft.world.level.tile.h"
+#include "../Minecraft.World/net.minecraft.world.entity.player.h"
+#include "../Minecraft.World/net.minecraft.world.item.h"
 #include "ClientConstants.h"
 
 SurvivalMode::SurvivalMode(Minecraft *minecraft) : GameMode(minecraft)
@@ -67,7 +72,7 @@ bool SurvivalMode::destroyBlock(int x, int y, int z, int face)
     bool couldDestroy = minecraft->player->canDestroy(Tile::tiles[t]);
     if (item != NULL)
 	{
-        item->mineBlock(t, x, y, z, minecraft->player);
+        item->mineBlock(minecraft->level, t, x, y, z, minecraft->player);
         if (item->count == 0)
 		{
             minecraft->player->removeSelectedItem();
@@ -87,7 +92,7 @@ void SurvivalMode::startDestroyBlock(int x, int y, int z, int face)
     minecraft->level->extinguishFire(minecraft->player, x, y, z, face);
     int t = minecraft->level->getTile(x, y, z);
     if (t > 0 && destroyProgress == 0) Tile::tiles[t]->attack(minecraft->level, x, y, z, minecraft->player);
-    if (t > 0 && Tile::tiles[t]->getDestroyProgress(minecraft->player) >= 1)
+    if (t > 0 && Tile::tiles[t]->getDestroyProgress(minecraft->player, minecraft->level, x, y, z) >= 1)
 	{
         destroyBlock(x, y, z, face);
     }
@@ -113,7 +118,7 @@ void SurvivalMode::continueDestroyBlock(int x, int y, int z, int face)
         if (t == 0) return;
         Tile *tile = Tile::tiles[t];
 
-        destroyProgress += tile->getDestroyProgress(minecraft->player);
+        destroyProgress += tile->getDestroyProgress(minecraft->player, minecraft->level, x, y, z);
 
         if (destroyTicks % 4 == 0)
 		{
@@ -194,10 +199,16 @@ bool SurvivalMode::useItemOn(shared_ptr<Player> player, Level *level, shared_ptr
 	int t = level->getTile(x, y, z);
 	if (t > 0)
 	{
-		if (Tile::tiles[t]->use(level, x, y, z, player)) return true;
+		// Tile::use() gained clickedFace/clickX/clickY/clickZ params since this
+		// call was last touched; useItemOn's own signature (matching GameMode's
+		// pure virtual) has no click-position data to forward, only `face`, so
+		// clickX/Y/Z default to 0.5f (face-centre) - a gameplay judgment call,
+		// not a mechanical port fix (see Phase 7a/7-fix-up notes).
+		if (Tile::tiles[t]->use(level, x, y, z, player, face, 0.5f, 0.5f, 0.5f)) return true;
 	}
 	if (item == NULL) return false;
-	return item->useOn(player, level, x, y, z, face);
+	// Same face-centre-default judgment call as Tile::use() above.
+	return item->useOn(player, level, x, y, z, face, 0.5f, 0.5f, 0.5f);
 }
 
 bool SurvivalMode::hasExperience()

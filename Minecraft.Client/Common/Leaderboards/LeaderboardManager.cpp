@@ -1,6 +1,6 @@
 #include "stdafx.h"
 
-#include "..\..\..\Minecraft.World\StringHelpers.h"
+#include "../../../Minecraft.World/StringHelpers.h"
 
 #include "LeaderboardManager.h"
 
@@ -8,6 +8,12 @@ const wstring LeaderboardManager::filterNames[eNumFilterModes] =
 	{
 		L"Friends", L"MyScore", L"TopRank"
 	};
+
+// No out-of-line definition existed anywhere for this static member (a
+// pre-existing gap, not Linux-specific - a static-library build never
+// requires it to be resolved unless something actually links against
+// LeaderboardManager, which nothing did until Phase 7's Linux executable).
+LeaderboardManager *LeaderboardManager::m_instance = NULL;
 
 void LeaderboardManager::DeleteInstance()
 {
