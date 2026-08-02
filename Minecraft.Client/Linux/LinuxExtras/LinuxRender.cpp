@@ -189,6 +189,18 @@ uniform bool u_lightEnable[2];
 uniform vec3 u_lightDir[2];
 uniform vec3 u_lightColour[2];
 
+// The colour set by StateSetColour (i.e. glColor4f), multiplied into the vertex colour.
+//
+// It cannot be applied as attribute 2's default value: that only takes effect when the
+// attribute's array is *disabled*, and this renderer leaves all four arrays permanently
+// enabled, so glVertexAttrib4f(2,...) was silently ignored for every tesselated draw.
+// A multiply is the right emulation because the two cases compose: Tesselator::end()
+// writes white when hasColor is false (so glColor4f wins, which is how grass, foliage and
+// water get their biome tint), and callers that do supply per-vertex colours leave
+// glColor4f at white (so the vertex colours win). Grass rendering grey in item icons was
+// this: a greyscale terrain tile with its tint dropped.
+uniform vec4 u_colourMul;
+
 uniform bool u_texGenEnabled;
 uniform vec4 u_texGenS;
 uniform vec4 u_texGenT;
@@ -214,7 +226,7 @@ void main()
 	// original console targets ("4J - removed little-endian option" on that same
 	// line). Reverse it here rather than in the attribute binding, which cannot
 	// express a byte-reversed read.
-	vec4 colour = a_colour.wzyx;
+	vec4 colour = a_colour.wzyx * u_colourMul;
 	if (u_vType == 2 && u_lightingEnabled)
 	{
 		vec3 lit = u_lightAmbient;
@@ -386,6 +398,7 @@ void main()
 	{
 		GLint modelview, projection, texture, vType;
 		GLint lightingEnabled, lightAmbient, lightEnable, lightDir, lightColour;
+		GLint colourMul;
 		GLint texGenEnabled, texGenS, texGenT, texGenR, texGenQ;
 		GLint sampler, textureEnabled;
 		GLint fogEnabled, fogMode, fogNear, fogFar, fogDensity, fogColour;
@@ -403,6 +416,7 @@ void main()
 		u.lightEnable = glGetUniformLocation(prog, "u_lightEnable");
 		u.lightDir = glGetUniformLocation(prog, "u_lightDir");
 		u.lightColour = glGetUniformLocation(prog, "u_lightColour");
+		u.colourMul = glGetUniformLocation(prog, "u_colourMul");
 		u.texGenEnabled = glGetUniformLocation(prog, "u_texGenEnabled");
 		u.texGenS = glGetUniformLocation(prog, "u_texGenS");
 		u.texGenT = glGetUniformLocation(prog, "u_texGenT");
@@ -942,13 +956,63 @@ void C4JRender::Present()
 
 void C4JRender::Clear(int flags, D3D11_RECT *pRect)
 {
-	// pRect (partial-clear rect) has no caller anywhere in the shared
-	// codebase that isn't already dead per this port's scope; full-buffer
-	// clear only.
 	GLbitfield mask = 0;
 	if (flags & CLEAR_COLOUR_FLAG) mask |= GL_COLOR_BUFFER_BIT;
 	if (flags & CLEAR_DEPTH_FLAG) mask |= GL_DEPTH_BUFFER_BIT;
-	glClear(mask);
+	if (!mask) return;
+
+	// glClear obeys the depth write mask, so a depth clear silently does nothing while
+	// writes are masked off - which is the state GDraw leaves behind after most of its
+	// draws. The vendor's own gdraw_ClearID() forces the mask for exactly this reason.
+	GLboolean depthMaskWas = GL_TRUE;
+	if (mask & GL_DEPTH_BUFFER_BIT)
+	{
+		glGetBooleanv(GL_DEPTH_WRITEMASK, &depthMaskWas);
+		glDepthMask(GL_TRUE);
+	}
+
+	// pRect is a partial-clear rect and it does have a live caller:
+	// UIController::endCustomDrawGameState() passes &m_customRenderingClearRect to clear
+	// depth for just the region a custom draw touched. Ignoring it wiped the *whole* depth
+	// buffer part-way through the frame, which destroys the object ids Iggy encodes there
+	// (depth_from_id + test_id/set_id) - so every Iggy draw issued after a custom-draw
+	// region lost its depth ordering and flickered. Honour it with a scissored clear, as
+	// the D3D11 and console backends do.
+	if (pRect)
+	{
+		// The rect is in top-left window coordinates; GL's origin is bottom-left.
+		int w = 0, h = 0;
+		if (g_window) SDL_GL_GetDrawableSize(g_window, &w, &h);
+
+		GLint rx = (GLint)pRect->left;
+		GLint rw = (GLint)(pRect->right - pRect->left);
+		GLint rh = (GLint)(pRect->bottom - pRect->top);
+		GLint ry = (GLint)(h - pRect->bottom);
+
+		// setupCustomDrawGameState seeds the rect inverted (LONG_MAX/LONG_MIN) and only
+		// widens it per region, so an empty or inverted rect means "nothing was drawn" -
+		// clear nothing rather than falling back to the whole buffer.
+		if (rw > 0 && rh > 0)
+		{
+			GLboolean scissorWas = glIsEnabled(GL_SCISSOR_TEST);
+			GLint oldBox[4] = {0, 0, 0, 0};
+			glGetIntegerv(GL_SCISSOR_BOX, oldBox);
+
+			glEnable(GL_SCISSOR_TEST);
+			glScissor(rx, ry, rw, rh);
+			glClear(mask);
+
+			glScissor(oldBox[0], oldBox[1], oldBox[2], oldBox[3]);
+			if (!scissorWas) glDisable(GL_SCISSOR_TEST);
+		}
+	}
+	else
+	{
+		glClear(mask);
+	}
+
+	if ((mask & GL_DEPTH_BUFFER_BIT) && !depthMaskWas)
+		glDepthMask(GL_FALSE);
 }
 
 void C4JRender::SetClearColour(const float colourRGBA[4])
@@ -1058,6 +1122,10 @@ namespace
 		glUniform1iv(u.lightEnable, 2, lightEnableInt);
 		glUniform3fv(u.lightDir, 2, &g_lightDir[0][0]);
 		glUniform3fv(u.lightColour, 2, &g_lightColour[0][0]);
+
+		// glColor4f's value. See u_colourMul's comment in the vertex shader for why this
+		// has to be a uniform multiply rather than attribute 2's default value.
+		glUniform4fv(u.colourMul, 1, g_colour);
 
 		glUniform1i(u.texGenEnabled, g_texGenEnabled);
 		glUniform4fv(u.texGenS, 1, g_texGen[0]);
@@ -1384,6 +1452,33 @@ int C4JRender::TextureCreate()
 	int id = g_nextTextureId++;
 	TextureRec rec;
 	glGenTextures(1, &rec.id);
+
+	// Establish the sampler defaults *here*, once, rather than in TextureData().
+	//
+	// TextureData() used to re-apply these on every upload, which silently threw away
+	// whatever the engine had just asked for: Textures::loadTexture sets the wrap and
+	// filter modes (Textures.cpp:498-529) and *then* calls TextureData to upload
+	// (Textures.cpp:584), so the parameters were overwritten a few lines later. Entity
+	// shadows were the loudest victim - shadow.png is loaded as "%clamp%misc/shadow" and
+	// the clamp is load-bearing, because the disc is inscribed in the full 64x64 with
+	// zero-alpha borders and each ground quad spans exactly one UV period
+	// (1/(2*shadowRadius) == 1.0 for the usual radius of 0.5). Clamping is what makes the
+	// tiles around the mob transparent; with GL_REPEAT every neighbouring tile drew
+	// another full disc, so one mob's shadow "leaked" into the adjacent tiles as half
+	// circles around the correct one. The same clobber also discarded the GL_LINEAR that
+	// "%blur%" textures (pumpkinblur, glint) ask for.
+	//
+	// GL's own defaults are no good as a fallback: GL_TEXTURE_MIN_FILTER defaults to
+	// GL_NEAREST_MIPMAP_LINEAR, and almost nothing in this tree ships a complete mip
+	// chain (…MipMapLevel2.png is absent for ~100 textures), which would make those
+	// textures mipmap-incomplete and sample as opaque black. So default to GL_NEAREST,
+	// matching what the engine asks for in the common case.
+	glBindTexture(GL_TEXTURE_2D, rec.id);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
 	g_textures[id] = rec;
 	return id;
 }
@@ -1449,10 +1544,9 @@ void C4JRender::TextureData(int width, int height, void *data, int level, eTextu
 	// (the others are commented out as "not directly available on D3D11");
 	// Tesselator/Textures.cpp always supply tightly-packed RGBA8 data.
 	glTexImage2D(GL_TEXTURE_2D, level, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	// Deliberately no glTexParameteri here - sampler state belongs to the texture object
+	// and the engine sets it before uploading. Re-applying it after the upload used to
+	// discard the caller's choice; see TextureCreate().
 	if (level == 0)
 	{
 		it->second.width = width;
@@ -1602,6 +1696,21 @@ HRESULT C4JRender::SaveTextureDataToMemory(void *pOutput, int outputCapacity, in
 
 void C4JRender::TextureGetStats()
 {
+}
+
+// See LinuxRender.h. TextureGetTexture() below can't serve this purpose because its
+// return type is a D3D11 interface; this hands out what Linux actually has, so
+// LinuxUIController can wrap a game texture for Iggy.
+bool LinuxRender_GetGLTexture(int textureId, unsigned int *outGLName,
+                             int *outWidth, int *outHeight)
+{
+	auto it = g_textures.find(textureId);
+	if (it == g_textures.end())
+		return false;
+	if (outGLName) *outGLName = (unsigned int)it->second.id;
+	if (outWidth)  *outWidth  = it->second.width;
+	if (outHeight) *outHeight = it->second.height;
+	return true;
 }
 
 ID3D11ShaderResourceView *C4JRender::TextureGetTexture(int idx)

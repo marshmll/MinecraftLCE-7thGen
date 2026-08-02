@@ -232,6 +232,15 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
+	// --direct-world bypasses the Iggy frontend and launches a world immediately,
+	// which is what this port did for all of Phase 7. See its use further down.
+	bool bDirectWorld = false;
+	for (int i = 1; i < argc; ++i)
+	{
+		if (strcmp(argv[i], "--direct-world") == 0)
+			bDirectWorld = true;
+	}
+
 	if (argc > 1 && strcmp(argv[1], "--smoke-test") == 0)
 	{
 		int rc = RunSmokeTest(linuxApp);
@@ -250,18 +259,16 @@ int main(int argc, char *argv[])
 	app.loadMediaArchive();
 	app.loadStringTable();
 
-	// ui.init(device,...) on every real platform is
-	// preInit(w,h) + (D3D11/gdraw setup, N/A here) + postInit() - see
-	// ConsoleUIController::init (Windows64_UIController.cpp:12-67). Calling
-	// preInit()+postInit() directly gives LinuxUIController's real UIGroup/
-	// UIScene infrastructure (m_groups[], fonts, tooltips) without any
-	// D3D11/gdraw step. postInit() does call into real Iggy C-API entry
-	// points (IggySetCustomDrawCallback, loadSkins(), NavigateToScene's
-	// scene factory) - all of those resolve to LinuxIggyShim.cpp's no-op
-	// stubs / UILayer.cpp's `#if !defined(_LINUX64)`-disabled scene
-	// factories, so this is safe: it initialises real UI-infrastructure
-	// state without ever loading or rendering an actual Iggy menu.
-	ui.Boot(linuxApp.GetWidth(), linuxApp.GetHeight());
+	// The real thing now: preInit(w,h) + GDraw setup + IggySetGDraw + postInit(),
+	// mirroring ConsoleUIController::init (Windows64_UIController.cpp:12-67). Unlike
+	// the other platforms there is no device/context to pass - GDraw's GL backend
+	// binds to the GL context CLinuxApp already created above.
+	//
+	// postInit() loads the skin libraries and ends with
+	// NavigateToScene(0, eUIScene_Intro) (UIController.cpp:303), so the frontend
+	// starts here. This must therefore run *after* app.loadMediaArchive(), which is
+	// where the SWFs come from.
+	ui.init(linuxApp.GetWidth(), linuxApp.GetHeight());
 
 	// Needed as early as possible so HasStarted()/ShouldRun() are valid for
 	// any background thread that might start soon after (GameRenderer's
@@ -322,10 +329,30 @@ int main(int argc, char *argv[])
 	// dereference it unconditionally. Matches Windows64_Minecraft.cpp:794.
 	g_NetworkManager.Initialise();
 
-	// Direct non-UI world launch (Phase 7 plan) - see Linux_MinecraftApp.cpp.
-	// Ported verbatim from Windows64_App.cpp's own dev-shortcut of the same
-	// name; skips UIScene_CreateWorldMenu/the Iggy progress scene entirely.
-	app.TemporaryCreateGameStart();
+	// Direct non-UI world launch - see Linux_MinecraftApp.cpp. Ported verbatim from
+	// Windows64_App.cpp's own dev-shortcut of the same name; skips
+	// UIScene_CreateWorldMenu and the Iggy progress scene entirely.
+	//
+	// This was the boot path for all of Phase 7, when there was no working UI to
+	// launch a world from. Now that there is (Phase 8), it would fight the frontend:
+	// ui.init() ends in NavigateToScene(eUIScene_Intro), so the intro/main menu is
+	// already up, and starting a world underneath it puts the game in two states at
+	// once. Kept behind a flag because it is still the quickest way to get straight
+	// into a world, and the only way to test gameplay if the UI regresses.
+	if (bDirectWorld)
+	{
+		app.DebugPrintf("--direct-world: closing the frontend, launching a world directly.\n");
+
+		// ui.init() ended in NavigateToScene(eUIScene_Intro), so the intro and its
+		// autosave message box are already on screen. Leaving them there does not just
+		// look wrong - a displayed menu legitimately blocks gameplay input
+		// (Minecraft.cpp:2238 gates the whole in-game input block on
+		// ui.GetMenuDisplayed(), which is how breaking and placing get suppressed), so
+		// the world would be unplayable underneath it. Close the scenes first.
+		ui.CloseAllPlayersScenes();
+
+		app.TemporaryCreateGameStart();
+	}
 
 	pMinecraft->options->set(Options::Option::MUSIC, 1.0f);
 	pMinecraft->options->set(Options::Option::SOUND, 1.0f);
@@ -361,6 +388,22 @@ int main(int argc, char *argv[])
 		ui.render();
 
 		RenderManager.Present();
+
+		// Dispatch queued app actions. app.SetAction() only *records* an action;
+		// CMinecraftApp::HandleXuiActions() is the sole consumer of the queue, and every
+		// other platform's main loop pumps it once per frame (Windows64_Minecraft.cpp:1128,
+		// Durango:950, Orbis:1416, PS3:1316, PSVita:1010, Xbox:824 - all live code, each
+		// just past a closing #endif).
+		//
+		// Without it the whole exit chain is dead after the confirmation dialogs: the pause
+		// menu records eAppAction_ExitWorld and nothing ever runs it, so SetGameStarted(false)
+		// - which lives two hops later in case eAppAction_ExitWorldCapturedThumbnail - never
+		// happens and the loop above keeps calling run_middle(). That is the reported
+		// "exiting to the main menu leaves the world running underneath".
+		//
+		// It also silently disabled Save Game, autosave, death-menu Respawn, per-player exit,
+		// dimension-change completion and eAppAction_ReloadTexturePack.
+		app.HandleXuiActions();
 
 		ui.CheckMenuDisplayed();
 	}

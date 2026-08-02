@@ -213,6 +213,12 @@ void MobRenderer::render(shared_ptr<Entity> _mob, double x, double y, double z, 
             glDisable(GL_BLEND);
             glEnable(GL_ALPHA_TEST);
             glEnable(GL_TEXTURE_2D);
+            // The hurt/death and overlayColor passes above set a non-white glColor4f and
+            // this block restores everything else they touched, so restore the colour too.
+            // Leaving it set bleeds the tint into whatever draws next - most visibly the
+            // entity's own shadow, which EntityRenderDispatcher draws immediately after
+            // this via postRender(), turning a hurt mob's shadow dark red at 40% alpha.
+            glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
         }
         glDisable(GL_RESCALE_NORMAL);
 //    }

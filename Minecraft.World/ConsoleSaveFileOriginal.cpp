@@ -782,7 +782,12 @@ void ConsoleSaveFileOriginal::Flush(bool autosave, bool updateThumbnail )
 	}
 
 	ReleaseSaveAccess();
-#elif (defined __PS3__ || defined __ORBIS__ || defined __PSVITA__ || defined _DURANGO || defined _WINDOWS64)
+// _LINUX64 belongs in this list, not in the #else: LinuxStorage.cpp implements
+// SetSaveImages/SaveSaveData for real (the async callback form, same as the consoles).
+// Without it Linux fell through to the #else below, which only releases save access -
+// so compressing the level succeeded, nothing was ever written, and no error was
+// reported. Worlds simply did not persist.
+#elif (defined __PS3__ || defined __ORBIS__ || defined __PSVITA__ || defined _DURANGO || defined _WINDOWS64 || defined _LINUX64)
 		// set the icon and save image
 		StorageManager.SetSaveImages(pbThumbnailData,dwThumbnailDataSize,pbDataSaveImage,dwDataSizeSaveImage,bTextMetadata,iTextMetadataBytes);
 		app.DebugPrintf("Save thumbnail size %d\n",dwThumbnailDataSize);
@@ -806,7 +811,9 @@ void ConsoleSaveFileOriginal::Flush(bool autosave, bool updateThumbnail )
 #endif
 }
 
-#if (defined __PS3__ || defined __ORBIS__ || defined __PSVITA__ || defined _DURANGO || defined _WINDOWS64)
+// Must match the guard on the SaveSaveData() call above, which passes this as its
+// completion callback.
+#if (defined __PS3__ || defined __ORBIS__ || defined __PSVITA__ || defined _DURANGO || defined _WINDOWS64 || defined _LINUX64)
 
 int ConsoleSaveFileOriginal::SaveSaveDataCallback(LPVOID lpParam,bool bRes)
 {

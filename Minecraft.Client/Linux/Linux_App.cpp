@@ -23,11 +23,23 @@ bool CLinuxApp::Init(int width, int height, const char *title)
 		return false;
 	}
 
-	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+	// COMPATIBILITY, not CORE - required by Iggy's GDraw OpenGL backend, which is a
+	// 2011-era GL 2.x renderer (see Minecraft.Client/Linux/Iggy/gdraw_sdl.c and
+	// .claude/linux-port/IGGY.md). Under a core profile it fails three ways:
+	// glGetString(GL_EXTENSIONS) returns NULL and trips its own assert; the
+	// GL_ARB_shader_objects entry points it resolves don't exist; and its texture
+	// format table uses GL_INTENSITY8/GL_LUMINANCE4_ALPHA4, which core removed.
+	//
+	// Compatibility is a strict superset of core, so LinuxRender's GLSL 330 +
+	// VAO/VBO path is unaffected - it keeps asking for 3.3 and keeps getting it.
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_COMPATIBILITY);
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
 	SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
 	SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
+	// GDraw uses the stencil buffer for Flash masks (gdraw_DrawMaskBegin/End). The
+	// default is 0 bits, which would silently disable masking rather than fail.
+	SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
 
 	m_window = SDL_CreateWindow(title,
 		SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,

@@ -1167,7 +1167,21 @@ void ClientConnection::onDisconnect(DisconnectPacket::eDisconnectReason reason, 
 		uiIDA[0]=IDS_CONFIRM_OK;
 		ui.RequestMessageBox(IDS_EXITING_GAME, IDS_GENERIC_ERROR, uiIDA, 1, ProfileManager.GetPrimaryPad(),&ClientConnection::HostDisconnectReturned,NULL, app.GetStringTable());
 	}
-	else
+	// Don't re-arm the exit as an *error* if this pad is already exiting: then this
+	// disconnect is a consequence of the teardown, not the cause of it. _ExitWorld closes
+	// the levels (IUIScene_PauseMenu.cpp:511-513) before it calls LeaveGame(), so
+	// IsLeavingGame() is still false here and cannot be used for this.
+	//
+	// The `(void *)TRUE` param is what selects _ExitWorld's "we were disconnected" branch,
+	// which shows a message box; with app.GetDisconnectReason() still eDisconnect_None for a
+	// deliberate exit, its switch falls to `default:` and reports
+	// IDS_CONNECTION_LOST_SERVER - "Connection to the server was lost. Exiting to the main
+	// menu." - after a perfectly normal user-initiated exit.
+	//
+	// Same family as the 4J hotfix for #13191 just above, which special-cases the host
+	// getting a spurious connection-lost message.
+	else if( app.GetXuiAction(m_userIndex) != eAppAction_ExitWorld &&
+	         app.GetXuiAction(m_userIndex) != eAppAction_ExitWorldCapturedThumbnail )
 	{
 		app.SetAction(m_userIndex,eAppAction_ExitWorld,(void *)TRUE);
 	}

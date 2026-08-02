@@ -13,6 +13,20 @@ code looks correct, nothing errors, and a large feature is simply dead:
 | Mobs moved in ~1 second jumps | `GetSystemTime()` hardcoded `wMilliseconds = 0` and `SystemTimeToFileTime()` ignored the field, so `System::currentTimeMillis()` only advanced in 1000ms steps. Tick loops ran a second's worth of ticks in a burst, then stalled. |
 | Heap abort at exit | `Chunk::Chunk()` (default ctor, used for the static `permaChunk[]`) initialised nothing, so `~Chunk()`'s `delete bb` freed garbage. See the `new[]`/`delete` section. |
 
+**Phase 8 found eight more of these in one sitting**, which is why this section leads the
+file. All were guards listing the consoles and/or `_WINDOWS64` with no `_LINUX64` case:
+
+| Symptom | Guard, and what Linux therefore skipped |
+|---|---|
+| Skin-select menu rendered no player models; every in-game item icon missing | `UIController.cpp:1232` `setupCustomDrawGameState` — no `RenderManager.StartFrame()` and no GDraw viewport reset, so the `glOrtho` below described a pixel space that did not match the bound viewport. Needed a new `gdraw_GL_setViewport_4J()` in `gdraw_sdl.c` (GDraw's GL backend had no counterpart to `gdraw_D3D11_setViewport_4J`). |
+| **Worlds were never written to disk at all** | `ConsoleSaveFileOriginal.cpp:785` — Linux fell into the `#else`, which only calls `ReleaseSaveAccess()`. `SetSaveImages()`/`SaveSaveData()` never ran; compression succeeded and nothing reported an error. Also excluded `SaveSaveDataCallback` from compilation (`:809` and the header's `:35`). |
+| Iggy warned "buffer holds 3333 not 5000 chars" on every boot | `UIController.cpp:2591` gates `CHAR_SIZE = 24` on `__ORBIS__`/`_DURANGO`/`_WIN64`. The rule is really "64-bit", and Linux is 64-bit but matches none of those macros, so it got 16. |
+| Controls screen showed an arbitrary controller diagram | `UIScene_ControlsMenu.cpp:15` — the `#if`/`#elif` chain has **no `#else`**, so `value[0].number` was never assigned and stack garbage went to the movie's `SetPlatform()`. `UIComponent_DebugUIMarketingGuide.cpp` does the same thing correctly by pre-seeding the value before its chain. |
+| Inline `{*CONTROLLER_VK_A*}` button glyphs drawn oversized | `Consoles_App.cpp:6247` and `:6413` gate the screen-width-dependent size on `_WIN64`, which is **not** defined for Linux, so a 1280x720 window used the 1080p size (45px instead of 30, 33 instead of 22). |
+| Create-world soft-locked silently with a trial texture pack | `UIScene_CreateWorldMenu.cpp:602` — no `_LINUX64`, no `#else`, so no message box was raised, but the `return` below still left `m_bIgnoreInput == true`. |
+| More-Options "Disable saving" toggle did nothing | `UIScene_CreateWorldMenu.cpp:622` was `_XBOX_ONE`/`__ORBIS__`-only. |
+| Leaderboards menu segfaulted on open; same NULL in-game via `StatsCounter` | Not an `#ifdef` but the same shape: `LeaderboardManager::m_instance` is defined **once per platform**, in that platform's own concrete subclass. Linux had no `Leaderboards/` directory, so `Instance()` returned NULL and no caller null-checks it. Fixed with `Linux/Leaderboards/LinuxLeaderboardManager.{h,cpp}`. **Do not "fix" a missing platform singleton by defining it as NULL in the shared file** — that turns a link error that names the culprit into a segfault. |
+
 Two habits that catch these fast:
 
 1. When a feature is *entirely* absent rather than wrong, look for the **initialiser**, not the
@@ -23,6 +37,12 @@ Two habits that catch these fast:
    never by reasoning about the feature.
 
 ## Systemic bug class: latched state that nothing can clear because the UI is bypassed
+
+> **HISTORICAL — both workarounds described below were reverted in Phase 8.** Iggy scenes
+> now build and `NavigateBack()` clears the flag as designed, so honouring it is correct;
+> keeping the overrides made the camera turn and the player walk around underneath an open
+> menu. The section is kept because the *diagnostic shape* recurs: when a whole feature is
+> inert, look for a latch that only the (previously bypassed) UI could clear.
 
 `UIController::NavigateToScene()` sets "a menu is displayed" **before** it builds the scene
 (`UIController.cpp:1481`), and only `NavigateBack()` clears it. On this build scene
@@ -237,6 +257,36 @@ a fluke.** If a new heap-corruption crash appears anywhere in
    link flags) — this catches the exact line of the invalid write/free immediately,
    which is far faster than the post-mortem gdb approach used so far. Not yet tried
    this session; worth doing before another long manual hunt.
+
+## Systemic bug class: `memset`/`ZeroMemory` over a struct that holds a `std::string`
+
+Same family as the `new[]`/`delete` mismatch above — UB that MSVC happens to survive and
+glibc does not — but it fails *immediately and locally* rather than corrupting the heap
+for later, so it is much easier to recognise once you know the shape.
+
+`Common/UI/UIStructs.h`'s `_LaunchMoreOptionsMenuInitData()` opened with
+`memset(this, 0, sizeof(*this))` as a shortcut for "default everything", then assigned the
+non-zero defaults. But the struct has a `wstring seed` member. Zeroing it leaves
+libstdc++'s `_M_p` as `nullptr`, so `_M_is_local()` is false and the string believes it
+owns a heap buffer of capacity 0. The very next `seed = L"";` then takes the
+"fits in existing capacity" path, reaches `_M_set_length(0)`, and writes the terminator
+through the null pointer.
+
+MSVC survives it because a zeroed `_Myres` still selects the small-string buffer, so the
+same `memset` is harmless there. **Every screen deriving from `IUIScene_StartGame`
+(`UIScene_CreateWorldMenu` and `UIScene_LoadMenu`) segfaulted in its constructor** — i.e.
+create-world and load-world were both completely unreachable on Linux. Fixed by
+initialising the members explicitly and leaving `seed` to its own constructor.
+
+Swept the tree for the pattern: `UIStructs.h:268` was the **only** `memset(this, …)` over a
+non-trivial type. The other 15 hits are either POD arrays (`memset(this->cache, …)`) or
+console-only `PlayerUID`/`GameSessionUID` PODs, all fine. `_SaveListDetails` in the same
+header does it correctly — it `ZeroMemory`s its `char[]`/`wchar_t[]` members individually
+rather than the whole object.
+
+Generalise: **any `memset`/`ZeroMemory` whose destination is `this` or a struct address is
+suspect.** Check every member for a non-trivial type before trusting it, and prefer
+per-member initialisation.
 
 ## Real (non-Linux-specific) bugs found and fixed
 

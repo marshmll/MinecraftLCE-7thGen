@@ -32,6 +32,11 @@ file intentionally omits:
 - `.claude/linux-port/ARCHITECTURE.md` — how the port is structured, the closed-middleware
   seams (4J_Render/Input/Storage/Profile), the Iggy UI wall and how it's bypassed,
   the direct-to-gameplay boot sequence.
+- `.claude/linux-port/IGGY.md` — **read this before any UI work.** Iggy turned out to be
+  usable on Linux after all (its OpenGL backend ships as source; the PS4 core is ELF
+  x86-64). Real LCE menus now render standalone. Documents the four non-obvious,
+  load-bearing details — chiefly 2461 relocations that must be rewritten or every
+  global access is silently wrong — and what's left to wire it into the client.
 - `.claude/linux-port/BUILD_AND_RUN.md` — exact build/run commands and non-obvious
   requirements (**the binary must be run with `Minecraft.Client/` as the working
   directory** — relative asset paths assume it and there is no error message if you
@@ -83,7 +88,10 @@ For the full phase-by-phase plan and its live status, see
   `4J_Storage.h`'s Subfile API for the two real precedents) — don't fork copies
   speculatively.
 - **The modern UI system (`Common/UI/*`, ~100 concrete `UIScene_*.cpp` menu screens)
-  is unconditionally built on Iggy**, a closed-source RAD Game Tools vector-UI
-  engine with prebuilt Windows-only binaries and no Linux equivalent. This is
-  currently and deliberately bypassed (see `ARCHITECTURE.md`) — don't try to make
-  real menus work without first reading why that's a separate, much larger effort.
+  is unconditionally built on Iggy**, a closed-source RAD Game Tools vector-UI engine.
+  It is still bypassed in the shipping client, but it is **no longer a dead end**: Iggy
+  now builds and runs on Linux under `Minecraft.Client/Linux/Iggy/` and renders real LCE
+  screens. Read `.claude/linux-port/IGGY.md` before touching any of this — reimplementing
+  Iggy would mean writing a Flash player (the UI's entire layout/focus/hit-testing lives
+  in 9.4 MB of ActionScript inside the SWF assets), which is why the vendor core is
+  reused instead.

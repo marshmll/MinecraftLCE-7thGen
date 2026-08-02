@@ -446,11 +446,30 @@ void UIController::loadSkins()
 #elif defined __ORBIS__
 	if(m_fScreenHeight==1080.0f)
 	{
-		platformSkinPath = L"skinHDOrbis.swf";	
+		platformSkinPath = L"skinHDOrbis.swf";
 	}
 	else
 	{
-		platformSkinPath = L"skinOrbis.swf";	
+		platformSkinPath = L"skinOrbis.swf";
+	}
+
+#elif defined _LINUX64
+	// No Linux-specific skin asset exists, so use Windows64's - the same choice the
+	// port already makes for the media archive itself (Consoles_App.cpp's _LINUX64
+	// branch loads MediaWindows64.arc, which is where these come from).
+	//
+	// Without this branch platformSkinPath stays empty, loadSkin() skips it, and then
+	// *every* scene fails to build with "Attempted to import undefined library
+	// platformskin.swf" - the scene SWFs import their button/panel/label symbols from
+	// it via SWF ImportAssets2. Nothing reports that as an error; scenes just don't
+	// appear.
+	if(m_fScreenHeight==1080.0f)
+	{
+		platformSkinPath = L"skinHDWin.swf";
+	}
+	else
+	{
+		platformSkinPath = L"skinWin.swf";
 	}
 
 #endif
@@ -458,10 +477,22 @@ void UIController::loadSkins()
 	if(m_fScreenHeight==1080.0f)
 	{
 		m_iggyLibraries[eLibrary_Platform] = loadSkin(platformSkinPath, L"platformskinHD.swf");
+#ifdef _LINUX64
+		// Linux also loads the HD skin *libraries* unconditionally (see the
+		// eLibrary_* block further down, which it shares with Windows64), and those
+		// import platformskinHD.swf. At 1080 that URL is taken above; at 720 it is
+		// not, and every HD library then fails with "Attempted to import undefined
+		// library platformskinHD.swf". Register the other one too so both resolution
+		// sets are complete whichever way round we are.
+		m_iggyLibraries[eLibraryFallback_Platform] = loadSkin(L"skinWin.swf", L"platformskin.swf");
+#endif
 	}
 	else
 	{
 		m_iggyLibraries[eLibrary_Platform] = loadSkin(platformSkinPath, L"platformskin.swf");
+#ifdef _LINUX64
+		m_iggyLibraries[eLibraryFallback_Platform] = loadSkin(L"skinHDWin.swf", L"platformskinHD.swf");
+#endif
 	}
 
 #if defined(__PS3__) || defined(__PSVITA__)
@@ -477,10 +508,17 @@ void UIController::loadSkins()
 	m_iggyLibraries[eLibrary_Default] = loadSkin(L"skin.swf", L"skin.swf");
 #endif
 
-#if ( defined(_WINDOWS64) || defined(_DURANGO) || defined(__ORBIS__) )
+#if ( defined(_WINDOWS64) || defined(_DURANGO) || defined(__ORBIS__) || defined(_LINUX64) )
 
-#if defined(_WINDOWS64)
+#if defined(_WINDOWS64) || defined(_LINUX64)
 	// 4J Stu - Load the 720/480 skins so that we have something to fallback on during development
+	//
+	// Linux needs this for the same reason Windows64 does, and then some: its window
+	// is 1280x720 (Linux_Minecraft.cpp), so the SD skins are the ones its scenes
+	// actually import. Beyond that, a handful of scenes import the SD URLs even at
+	// 1080p - NewUpdateMessage1080.swf wants platformskin.swf and
+	// HorseInventoryMenu1080.swf wants skinGraphics.swf - and fail outright without
+	// them. Verified across all 335 SWFs with Linux/Iggy/iggy_spike.
 #ifndef _FINAL_BUILD
 	m_iggyLibraries[eLibraryFallback_GraphicsDefault] = loadSkin(L"skinGraphics.swf", L"skinGraphics.swf");
 	m_iggyLibraries[eLibraryFallback_GraphicsHUD] = loadSkin(L"skinGraphicsHud.swf", L"skinGraphicsHud.swf");
@@ -1205,6 +1243,16 @@ void UIController::setupCustomDrawGameState()
 	// Set up a viewport for the render that matches Iggy's own viewport, apart form using an opengl-style z-range (Iggy uses a DX-style range on PS4), so
 	// that the renderer orthographic projection will work
 	gdraw_orbis_setViewport_4J();
+#elif defined _LINUX64
+	// Same as Windows64/Durango. Without this branch Linux did neither of these two
+	// things, and the glOrtho below - which routes into LinuxRender's own matrix stack
+	// via glWrapper.cpp, not fixed-function GL - was left describing a pixel space that
+	// did not match the viewport actually bound. Everything drawn through custom draw
+	// therefore landed off-screen or degenerate: the player models in
+	// UIScene_SkinSelectMenu (UIControl_PlayerSkinPreview) and every item icon in the
+	// HUD, inventory, crafting and enchanting screens.
+	RenderManager.StartFrame();
+	gdraw_GL_setViewport_4J();
 #endif
 	RenderManager.Set_matrixDirty();
 
@@ -2435,6 +2483,17 @@ C4JStorage::EMessageResult UIController::RequestMessageBox(UINT uiTitle, UINT ui
 
 	EUILayer layer = bIsError?eUILayer_Error:eUILayer_Alert;
 
+	// Every message box, with its string ids and the caller, so a spurious one can be
+	// traced. IDS_CONNECTION_FAILED/IDS_CONNECTION_LOST_SERVER in particular are raised
+	// from several unrelated places and the wording alone does not identify which.
+	app.DebugPrintf("RequestMessageBox title=%u text=%u pad=%u layer=%d caller=%p\n",
+		uiTitle, uiText, dwPad, (int)layer,
+#ifdef _LINUX64
+		__builtin_return_address(0));
+#else
+		(void *)NULL);
+#endif
+
 	bool completed = false;
 	if(ui.IsReloadingSkin())
 	{
@@ -2540,7 +2599,11 @@ void UIController::setFontCachingCalculationBuffer(int length)
 	draw call is not large enough, Iggy will crash or otherwise behave
 	incorrectly.
 	*/
-#if defined __ORBIS__ || defined _DURANGO || defined _WIN64
+	// Per the note above the rule is 16 bytes/char in 32-bit and 24 in 64-bit, so this
+	// list is really "the 64-bit platforms". _LINUX64 is 64-bit but matches none of the
+	// other three macros, so it was getting 16 and then telling Iggy the buffer held
+	// 5000 chars when it only held 3333 - which Iggy warns about on every boot.
+#if defined __ORBIS__ || defined _DURANGO || defined _WIN64 || defined _LINUX64
 	static const int CHAR_SIZE = 24;
 #else
 	static const int CHAR_SIZE = 16;

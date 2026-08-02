@@ -314,7 +314,16 @@ void CMinecraftApp::SetAction(int iPad, eXuiAction action, LPVOID param)
 	}
 	else
 	{
-		app.DebugPrintf("Changing App action for pad %d from %d to %d\n", iPad, m_eXuiAction[iPad], action);
+		// param matters: a non-NULL param on eAppAction_ExitWorld selects _ExitWorld's
+		// "we were disconnected" branch, which raises a message box. Log it, and the caller,
+		// so a spurious one can be traced to whoever armed it.
+		app.DebugPrintf("Changing App action for pad %d from %d to %d (param=%p, reason=%d, caller=%p)\n",
+			iPad, m_eXuiAction[iPad], action, param, (int)app.GetDisconnectReason(),
+#ifdef _LINUX64
+			__builtin_return_address(0));
+#else
+			(void *)NULL);
+#endif
 		m_eXuiAction[iPad]=action;
 		m_eXuiActionParam[iPad] = param;
 	}
@@ -6244,7 +6253,10 @@ wstring CMinecraftApp::GetActionReplacement(int iPad, unsigned char ucAction)
 
 #ifdef __PS3__
 	int size = 30;
-#elif defined _WIN64
+	// Linux joins the _WIN64 case: it is not a fixed-resolution console, so the glyph
+	// size has to follow the actual screen width. Its window is 1280x720, so without
+	// this it took the 45px branch meant for 1080p and drew oversized button icons.
+#elif defined _WIN64 || defined _LINUX64
 	int size = 45;
 	if(ui.getScreenWidth() < 1920) size = 30;
 #else
@@ -6373,7 +6385,10 @@ wstring CMinecraftApp::GetVKReplacement(unsigned int uiVKey)
 
 #ifdef __PS3__
 	int size = 30;
-#elif defined _WIN64
+	// Linux joins the _WIN64 case: it is not a fixed-resolution console, so the glyph
+	// size has to follow the actual screen width. Its window is 1280x720, so without
+	// this it took the 45px branch meant for 1080p and drew oversized button icons.
+#elif defined _WIN64 || defined _LINUX64
 	int size = 45;
 	if(ui.getScreenWidth() < 1920) size = 30;
 #else
@@ -6404,7 +6419,8 @@ wstring CMinecraftApp::GetIconReplacement(unsigned int uiIcon)
 
 #ifdef __PS3__
 	int size = 22;
-#elif defined _WIN64
+	// Same reasoning as GetVKReplacement above - Linux scales with screen width.
+#elif defined _WIN64 || defined _LINUX64
 	int size = 33;
 	if(ui.getScreenWidth() < 1920) size = 22;
 #else

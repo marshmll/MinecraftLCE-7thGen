@@ -283,7 +283,12 @@ void UIScene::loadMovie()
 #elif defined __PSVITA__
 	moviePath.append(L"Vita.swf");
 	m_loadedResolution = eSceneResolution_Vita;
-#elif defined _WINDOWS64
+#elif defined _WINDOWS64 || defined _LINUX64
+	// Linux picks by actual screen height, exactly as Windows64 does. Without a branch
+	// here it fell into the #else below and always asked for the 1080 movie - which at
+	// a 1280x720 window is the wrong set: loadSkins() registers the SD skin libraries
+	// for a 720 screen, so every 1080 scene then failed to import skinHD*.swf and
+	// loadMovie() got a NULL player back.
 	if(ui.getScreenHeight() == 720)
 	{
 		moviePath.append(L"720.swf");
@@ -336,11 +341,22 @@ void UIScene::loadMovie()
 
 	if(!swf)
 	{
-		app.DebugPrintf("ERROR: Failed to load iggy scene!\n");
+		app.DebugPrintf("ERROR: Failed to load iggy scene %ls!\n", moviePath.c_str());
 #ifndef _CONTENT_PACKAGE
 		__debugbreak();
 #endif
 		app.FatalLoadError();
+
+		// Stop here. CMinecraftApp::FatalLoadError() is an empty function on every
+		// platform (Consoles_App.cpp:5830) and __debugbreak() only traps under a
+		// debugger, so without this the code below dereferences the NULL that was
+		// just detected - IggyPlayerProperties(NULL) returns NULL and
+		// properties->movie_height_in_pixels segfaults. Leaving the scene with a NULL
+		// `swf` is already a handled state: every method here guards on it
+		// (render()/tick()/sendInputToMovie() all early-out), and hasMovie() reports
+		// it, which is how the caller finds out.
+		LeaveCriticalSection(&UIController::ms_reloadSkinCS);
+		return;
 	}
 	app.DebugPrintf( app.USER_SR, "Loaded iggy movie %ls\n", moviePath.c_str() );
 	IggyProperties *properties = IggyPlayerProperties ( swf ); 

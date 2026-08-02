@@ -70,8 +70,10 @@ private:
 		eLibrary_Tooltips,
 		eLibrary_Default,
 
-#if ( defined(_WINDOWS64) )
+#if ( defined(_WINDOWS64) || defined(_LINUX64) )
 	// 4J Stu - Load the 720/480 skins so that we have something to fallback on during development
+	// (Linux is here for the same reason - and needs it more, since its window is
+	// 1280x720 so the SD skins are the set its scenes import. See loadSkins().)
 #ifndef _FINAL_BUILD
 		eLibraryFallback_Platform,
 		eLibraryFallback_GraphicsDefault,

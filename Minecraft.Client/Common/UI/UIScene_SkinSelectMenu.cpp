@@ -349,7 +349,7 @@ void UIScene_SkinSelectMenu::handleInput(int iPad, int key, bool repeat, bool pr
 #endif
 							if(bContentRestricted)
 							{
-#if !(defined(_XBOX) || defined(_WIN64)) // 4J Stu - Temp to get the win build running, but so we check this for other platforms
+#if !(defined(_XBOX) || defined(_WIN64) || defined(_LINUX64)) // 4J Stu - Temp to get the win build running, but so we check this for other platforms  (_LINUX64: console online-service check; IDS_ONLINE_SERVICE_TITLE is not in Windows64Media's strings.h)
 								// you can't see the store
 								UINT uiIDA[1] = { IDS_CONFIRM_OK };
 								ui.RequestMessageBox(IDS_ONLINE_SERVICE_TITLE, IDS_CONTENT_RESTRICTION, uiIDA, 1, iPad,NULL,this, app.GetStringTable(),NULL,0,false);
@@ -656,7 +656,7 @@ void UIScene_SkinSelectMenu::InputActionOK(unsigned int iPad)
 #endif
 						if(bContentRestricted)
 						{
-#if !(defined(_XBOX) || defined(_WIN64)) // 4J Stu - Temp to get the win build running, but so we check this for other platforms
+#if !(defined(_XBOX) || defined(_WIN64) || defined(_LINUX64)) // 4J Stu - Temp to get the win build running, but so we check this for other platforms  (_LINUX64: console online-service check; IDS_ONLINE_SERVICE_TITLE is not in Windows64Media's strings.h)
 							// you can't see the store
 							UINT uiIDA[1];
 							uiIDA[0]=IDS_CONFIRM_OK;

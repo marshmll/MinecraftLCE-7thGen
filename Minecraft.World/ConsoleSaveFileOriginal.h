@@ -32,7 +32,9 @@ private:
 	void MoveDataBeyond(FileEntry *file, DWORD nNumberOfBytesToWrite);
 
 public:
-#if (defined __PS3__ || defined __ORBIS__ || defined __PSVITA__ || defined _DURANGO || defined _WINDOWS64)
+// Keep this list in sync with the two guards in ConsoleSaveFileOriginal.cpp (the
+// SaveSaveData() call site and the definition below it).
+#if (defined __PS3__ || defined __ORBIS__ || defined __PSVITA__ || defined _DURANGO || defined _WINDOWS64 || defined _LINUX64)
 	static int SaveSaveDataCallback(LPVOID lpParam,bool bRes);
 #endif
 	ConsoleSaveFileOriginal(const wstring &fileName, LPVOID pvSaveData = NULL, DWORD fileSize = 0, bool forceCleanSave = false, ESavePlatform plat = SAVE_FILE_PLATFORM_LOCAL);

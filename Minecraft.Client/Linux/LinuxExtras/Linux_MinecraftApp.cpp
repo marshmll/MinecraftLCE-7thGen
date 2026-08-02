@@ -10,6 +10,8 @@
 #include "../../../Minecraft.World/BiomeSource.h"
 #include "../../../Minecraft.World/LevelType.h"
 
+#include <SDL2/SDL.h>   // ExitGame() posts SDL_QUIT; see the comment there
+
 CConsoleMinecraftApp app;
 
 CConsoleMinecraftApp::CConsoleMinecraftApp() : CMinecraftApp()
@@ -26,6 +28,15 @@ void CConsoleMinecraftApp::StoreLaunchData()
 }
 void CConsoleMinecraftApp::ExitGame()
 {
+	// Post a quit event rather than tearing anything down here. CLinuxApp::PollEvents()
+	// returns false on SDL_QUIT, which ends the main loop and runs the existing ordered
+	// shutdown (ShutdownManager::StartShutdown() -> MainThreadHandleShutdown(), reaching
+	// "Shutdown manager: Complete."). Calling exit() or destroying state from a UI callback
+	// would skip that and leave the worker threads running.
+	SDL_Event quit;
+	SDL_zero(quit);
+	quit.type = SDL_QUIT;
+	SDL_PushEvent(&quit);
 }
 void CConsoleMinecraftApp::FatalLoadError()
 {

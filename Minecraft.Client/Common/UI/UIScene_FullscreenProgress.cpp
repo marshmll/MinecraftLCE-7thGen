@@ -158,6 +158,8 @@ void UIScene_FullscreenProgress::tick()
 
 	if( exitcode != STILL_ACTIVE )
 	{
+		app.DebugPrintf("FullscreenProgress: thread finished, exitcode=0x%08x (S_OK=0x%08x STILL_ACTIVE=0x%08x ERROR_CANCELLED=0x%08x)\n",
+			(unsigned)exitcode, (unsigned)S_OK, (unsigned)STILL_ACTIVE, (unsigned)ERROR_CANCELLED);
 		// If we failed (currently used by network connection thread), navigate back
 		if( exitcode != S_OK )
 		{

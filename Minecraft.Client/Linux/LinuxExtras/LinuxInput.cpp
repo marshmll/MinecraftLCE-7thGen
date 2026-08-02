@@ -505,19 +505,21 @@ unsigned char C_4JInput::GetJoypadRTrigger(int iPad, bool bCheckMenuDisplay) { r
 
 void C_4JInput::SetMenuDisplayed(int iPad, bool bVal)
 {
-	// Deliberately ignored on this build. The flag exists to suppress gameplay
-	// stick/trigger input while a menu covers the screen, but no Iggy scene ever
-	// reaches the screen here, so it can only ever be set spuriously - and it
-	// latches: UIController::SetMenuDisplayed() forwards true to us from
-	// NavigateToScene() (UIController.cpp:1481/1820) *before* the scene is built,
-	// and only NavigateBack() would clear it. Scene construction fails here, so
-	// nothing ever clears it.
+	// This used to be deliberately ignored, on the grounds that no Iggy scene ever
+	// reached the screen so the flag could only ever be set spuriously - and that it
+	// latched, because UIController::SetMenuDisplayed() forwards true from
+	// NavigateToScene() *before* the scene is built and only NavigateBack() clears it,
+	// while scene construction always failed. Ignoring it mattered because
+	// ReadAxis()/ReadTrigger() return 0 for every axis when it is set, so one failed
+	// navigation permanently killed camera look and WASD movement.
 	//
-	// The consequence was severe because ReadAxis()/ReadTrigger() return 0 for
-	// *every* axis when it is set: one failed navigation permanently killed both
-	// camera look and WASD movement. See LinuxUIController::GetMenuDisplayed() for
-	// the same reasoning applied to the game-facing query.
-	(void)iPad; (void)bVal;
+	// That premise no longer holds: Iggy works on Linux now (Phase 8), scenes build
+	// successfully, and NavigateBack() clears the flag as designed. So honour it -
+	// otherwise the camera keeps turning and the player keeps walking underneath an
+	// open menu.
+	if (iPad < 0 || iPad >= MAX_PADS)
+		return;
+	g_pads[iPad].menuDisplayed = bVal;
 }
 
 EKeyboardResult C_4JInput::RequestKeyboard(LPCWSTR Title, LPCWSTR Text, DWORD dwPad, UINT uiMaxChars, int (*Func)(LPVOID, const bool), LPVOID lpParam, C_4JInput::EKeyboardMode eMode)

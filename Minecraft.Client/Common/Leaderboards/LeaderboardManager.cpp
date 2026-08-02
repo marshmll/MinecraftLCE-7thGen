@@ -9,11 +9,13 @@ const wstring LeaderboardManager::filterNames[eNumFilterModes] =
 		L"Friends", L"MyScore", L"TopRank"
 	};
 
-// No out-of-line definition existed anywhere for this static member (a
-// pre-existing gap, not Linux-specific - a static-library build never
-// requires it to be resolved unless something actually links against
-// LeaderboardManager, which nothing did until Phase 7's Linux executable).
-LeaderboardManager *LeaderboardManager::m_instance = NULL;
+// m_instance is deliberately defined once per platform, in that platform's own
+// concrete subclass (Windows64/Leaderboards/WindowsLeaderboardManager.cpp and the
+// Xbox/Durango/Orbis/PS3/PSVita equivalents; Linux/Leaderboards/LinuxLeaderboardManager.cpp).
+// Do not add a NULL definition here: LeaderboardManager is abstract, and none of the
+// callers null-check Instance(), so a NULL singleton turns a link error - which names
+// the platform that forgot to provide one - into a segfault on the first menu that
+// opens a leaderboard session.
 
 void LeaderboardManager::DeleteInstance()
 {

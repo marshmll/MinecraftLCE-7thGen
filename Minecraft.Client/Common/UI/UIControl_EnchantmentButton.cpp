@@ -6,6 +6,10 @@
 #include "../../MultiPlayerLocalPlayer.h"
 #include "../../../Minecraft.World/StringHelpers.h"
 
+// std::istream_iterator / std::back_inserter, used by EnchantmentNames(). MSVC's
+// <sstream> pulls these in transitively; libstdc++ does not.
+#include <iterator>
+
 UIControl_EnchantmentButton::UIControl_EnchantmentButton()
 {
 	m_index = 0;

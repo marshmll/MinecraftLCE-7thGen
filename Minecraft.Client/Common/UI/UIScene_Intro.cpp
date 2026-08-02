@@ -18,7 +18,10 @@ UIScene_Intro::UIScene_Intro(int iPad, void *initData, UILayer *parentLayer) : U
 #endif
 
 	// 4J Stu - These map to values in the Actionscript
-#ifdef _WINDOWS64
+	// Linux shares Windows64's index (0 = PC): it uses the same skin assets and the
+	// same button prompts, and the ActionScript has no Linux case. Without a branch
+	// here platformIdx is simply undeclared - this #ifdef chain has no #else.
+#if defined(_WINDOWS64) || defined(_LINUX64)
 	int platformIdx = 0;
 #elif defined(_XBOX)
 	int platformIdx = 1;

@@ -351,6 +351,23 @@ void UIScene_MainMenu::handlePress(F64 controlId, F64 childId)
 			ui.NavigateToScene(primaryPad,eUIScene_TrialExitUpsell);
 		}
 		break;
+#elif defined _LINUX64
+	case eControl_Exit:
+		{
+			// The Exit Game button *is* created on Linux (see the #ifndef _DURANGO at the top
+			// of this file, and the removeControl below it is PS3/Orbis/Vita-only), but this
+			// case used to be _XBOX-only with no #else, so pressing it did nothing at all -
+			// handlePress simply fell off the end of the switch.
+			//
+			// Not the Xbox body: that offers the arcade-trial upsell and, for the full
+			// version, warns about returning to the dashboard. On Linux there is no
+			// dashboard and no trial SKU, so just confirm and quit.
+			UINT uiIDA[2];
+			uiIDA[0]=IDS_CANCEL;
+			uiIDA[1]=IDS_OK;
+			ui.RequestMessageBox(IDS_EXIT_GAME, IDS_CONFIRM_EXIT_GAME, uiIDA, 2, XUSER_INDEX_ANY,&UIScene_MainMenu::ExitGameReturned,this);
+		}
+		break;
 #endif
 
 #ifdef _DURANGO
@@ -897,7 +914,7 @@ int UIScene_MainMenu::Leaderboards_SignInReturned(void *pParam,bool bContinue,in
 			if(bContentRestricted)
 			{				
 				pClass->m_bIgnorePress=false;
-#if !(defined(_XBOX) || defined(_WIN64)) // 4J Stu - Temp to get the win build running, but so we check this for other platforms
+#if !(defined(_XBOX) || defined(_WIN64) || defined(_LINUX64)) // 4J Stu - Temp to get the win build running, but so we check this for other platforms  (_LINUX64: console online-service check; IDS_ONLINE_SERVICE_TITLE is not in Windows64Media's strings.h)
 				// you can't see leaderboards
 				UINT uiIDA[1];
 				uiIDA[0]=IDS_CONFIRM_OK;
@@ -1548,7 +1565,7 @@ void UIScene_MainMenu::RunLeaderboards(int iPad)
 #endif
 		if(bContentRestricted)
 		{
-#if !(defined(_XBOX) || defined(_WIN64)) // 4J Stu - Temp to get the win build running, but so we check this for other platforms
+#if !(defined(_XBOX) || defined(_WIN64) || defined(_LINUX64)) // 4J Stu - Temp to get the win build running, but so we check this for other platforms  (_LINUX64: console online-service check; IDS_ONLINE_SERVICE_TITLE is not in Windows64Media's strings.h)
 			// you can't see leaderboards
 			UINT uiIDA[1];
 			uiIDA[0]=IDS_CONFIRM_OK;
@@ -1653,7 +1670,7 @@ void UIScene_MainMenu::RunUnlockOrDLC(int iPad)
 					if(bContentRestricted)
 					{
 						m_bIgnorePress=false;
-#if !(defined(_XBOX) || defined(_WIN64)) // 4J Stu - Temp to get the win build running, but so we check this for other platforms
+#if !(defined(_XBOX) || defined(_WIN64) || defined(_LINUX64)) // 4J Stu - Temp to get the win build running, but so we check this for other platforms  (_LINUX64: console online-service check; IDS_ONLINE_SERVICE_TITLE is not in Windows64Media's strings.h)
 						// you can't see the store
 						UINT uiIDA[1];
 						uiIDA[0]=IDS_CONFIRM_OK;

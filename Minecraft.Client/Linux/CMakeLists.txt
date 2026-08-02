@@ -120,57 +120,40 @@ file(GLOB MCLINUX_COMMON_SOURCES CONFIGURE_DEPENDS
 # per-config exclusion listed) - referenced by GameNetworkManager.cpp.
 list(APPEND MCLINUX_COMMON_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/../Xbox/Network/NetworkPlayerXbox.cpp")
 
-set(MCLINUX_UI_SOURCES
-    Common/UI/UIController.cpp
-    Common/UI/UIGroup.cpp
-    Common/UI/UILayer.cpp
-    Common/UI/UIScene.cpp
-    # Small "component" overlays (HUD/tooltips/debug console/press-start/
-    # tutorial popup) - referenced directly by UIController/UIGroup, not just
-    # via the disabled addComponent() factory switch; not Iggy-only screens.
-    Common/UI/UIComponent_DebugUIConsole.cpp
-    Common/UI/UIComponent_PressStartToPlay.cpp
-    Common/UI/UIComponent_Tooltips.cpp
-    Common/UI/UIComponent_TutorialPopup.cpp
-    Common/UI/UIScene_HUD.cpp
-    # Base widget/font classes the component overlays above build on -
-    # generic UI building blocks, not concrete Iggy-menu screens.
-    Common/UI/UIControl.cpp
-    Common/UI/UIControl_Base.cpp
-    Common/UI/UIControl_Label.cpp
-    Common/UI/UIBitmapFont.cpp
-    Common/UI/UITTFFont.cpp
-    Common/UI/UIFontData.cpp
-    # Referenced directly by IUIScene_StartGame.cpp (DLC texture-pack list -
-    # part of the non-Iggy IUIScene_* container-logic set below, not a
-    # concrete menu screen itself); their own bodies have no Iggy calls
-    # beyond what UIControl_Base.cpp (already included) already covers.
-    Common/UI/UIControl_BitmapIcon.cpp
-    Common/UI/UIControl_TexturePackList.cpp
-    # Referenced directly by UIScene_FullscreenProgress.cpp (progress bar +
-    # cancel button widgets) - same non-Iggy-screen "control widget" category
-    # as UIControl_BitmapIcon/TexturePackList above.
-    Common/UI/UIControl_Progress.cpp
-    Common/UI/UIControl_Button.cpp
-    # Referenced directly (not just via the disabled scene-factory switch)
-    # from UILayer.cpp and Common/Network/GameNetworkManager.cpp - genuinely
-    # load-bearing infrastructure, not one of the ~100 excluded concrete
-    # Iggy menu screens.
-    Common/UI/UIScene_FullscreenProgress.cpp
-)
-list(TRANSFORM MCLINUX_UI_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/../")
+# Common/UI is now globbed like every other directory. It used to be the one
+# hand-picked list in this file, because Iggy was believed to be unavailable on Linux
+# and the ~100 concrete UIScene_*/UIControl_* menu screens are Iggy-backed. Iggy now
+# builds and runs here (see .claude/linux-port/IGGY.md and the Iggy/ subdirectory), so
+# the whole scene tree is in scope and UILayer.cpp's two scene factories are no longer
+# guarded out.
+file(GLOB MCLINUX_UI_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../Common/UI/*.cpp")
 
-# IUIScene_* (container-family mixins - AbstractContainerMenu/AnvilMenu/
-# BrewingMenu/etc, 13 files) are a SEPARATE, smaller set from the ~100
-# concrete UIScene_*.cpp menu screens: base non-Iggy container logic the
-# component overlays/UI infrastructure above pull in transitively. Already
-# absolute paths from file(GLOB ...) - appended after the PREPEND above so
-# they don't get double-prefixed.
-file(GLOB MCLINUX_IUISCENE_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../Common/UI/IUIScene_*.cpp")
-list(APPEND MCLINUX_UI_SOURCES ${MCLINUX_IUISCENE_SOURCES})
+# These are exactly the two Common/UI files Minecraft.Client.vcxproj excludes from its
+# x64 configurations, so excluding them here follows the vcxproj rather than working
+# around them:
+#
+#   UIControl_Touch.cpp - PSVita touch input. Everything it calls
+#       (UIScene::GetParentLayer(), UIController::TouchBoxAdd()) is declared inside
+#       `#ifdef __PSVITA__`.
+#   UIScene_InGameSaveManagementMenu.cpp - console save-management screen. Uses
+#       Sony's sceCesUcs* string conversion, a C4JStorage::ContinueIncompleteOperation()
+#       that no shared header declares, and IDS_* strings absent from Windows64's
+#       strings.h.
+foreach(_ui_excluded UIControl_Touch.cpp UIScene_InGameSaveManagementMenu.cpp)
+    list(REMOVE_ITEM MCLINUX_UI_SOURCES
+         "${CMAKE_CURRENT_SOURCE_DIR}/../Common/UI/${_ui_excluded}")
+endforeach()
 
 # The ~56 per-entity *Renderer.cpp / ~34 *Model.cpp / ~29 *Particle.cpp files
 # are already covered by MCLINUX_ROOT_SOURCES's glob above.
+
+# Iggy: the vendor PS4 core adapted for Linux, plus Iggy's own OpenGL GDraw backend
+# built from the source that ships in Windows64/Iggy/gdraw. This replaces the premise
+# that Iggy is unavailable on Linux; see .claude/linux-port/IGGY.md.
+#
+# The client links this, so LinuxIggyShim.cpp's no-op stubs are gone from the source
+# list below - they would now be duplicate definitions of the real entry points.
+add_subdirectory(Iggy)
 
 add_executable(Minecraft.Client.Linux
     Linux_App.cpp
@@ -179,10 +162,13 @@ add_executable(Minecraft.Client.Linux
     LinuxExtras/LinuxInput.cpp
     LinuxExtras/LinuxStorage.cpp
     LinuxExtras/LinuxAudioShim.cpp
-    LinuxExtras/LinuxIggyShim.cpp
     LinuxExtras/LinuxUIController.cpp
     LinuxExtras/Linux_MinecraftApp.cpp
     LinuxExtras/LinuxShutdownManager.cpp
+    # Defines LeaderboardManager::m_instance, which every platform owns in its own
+    # concrete subclass. Common/Leaderboards/LeaderboardManager.cpp deliberately does
+    # not define it - see the comment there.
+    Leaderboards/LinuxLeaderboardManager.cpp
     ${MCLINUX_ROOT_SOURCES}
     ${MCLINUX_COMMON_SOURCES}
     ${MCLINUX_UI_SOURCES}
@@ -195,6 +181,10 @@ target_include_directories(Minecraft.Client.Linux PRIVATE
 
 target_link_libraries(Minecraft.Client.Linux PRIVATE
     Minecraft.World
+    # Iggy: the object library must come before nothing in particular here, but note
+    # it carries the vendor archive as a PUBLIC dependency and propagates the Iggy
+    # header include paths (which stdafx.h needs for iggy.h and gdraw_wgl.h).
+    mclinux_iggy
     ${MCLINUX_SDL2_TARGET}
     OpenGL::GL
     GLEW::GLEW

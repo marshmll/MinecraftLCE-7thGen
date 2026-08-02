@@ -597,7 +597,7 @@ void UIScene_PauseMenu::handlePress(F64 controlId, F64 childId)
 #endif
 				if(bContentRestricted)
 				{
-#if !(defined(_XBOX) || defined(_WIN64)) // 4J Stu - Temp to get the win build running, but so we check this for other platforms
+#if !(defined(_XBOX) || defined(_WIN64) || defined(_LINUX64)) // 4J Stu - Temp to get the win build running, but so we check this for other platforms  (_LINUX64: console online-service check; IDS_ONLINE_SERVICE_TITLE is not in Windows64Media's strings.h)
 					// you can't see leaderboards
 					UINT uiIDA[1];
 					uiIDA[0]=IDS_CONFIRM_OK;

@@ -80,20 +80,38 @@ now established by evidence, worth knowing before touching that file:
   loaded images as packed ARGB ints). A Linux loader handing over stb's natural RGBA byte
   order transposes red and blue for the whole game.
 
-## The Iggy wall (discovered during Phase 7 planning)
+## The Iggy wall — turned out not to be a wall (see `IGGY.md`)
 
 The entire modern UI scene system — `Minecraft.Client/Common/UI/*`, ~109 files, the
 title screen / world-select / create-world / pause menu / inventory / options
 screens, driven by the `ui` global (`ConsoleUIController`/`UIController`) — is
 unconditionally built on **Iggy**, RAD Game Tools' closed-source vector-UI engine
-(`#define _ENABLEIGGY` is unconditional in `Windows64_UIController.cpp`). Prebuilt
-Windows-only `.lib`/`.dll`, zero source, zero Linux equivalent. This is a bigger,
-harder wall than Render/Input/Storage/Profile combined — reimplementing it means
-reimplementing a Flash-like vector-animation UI engine, or writing a from-scratch
-native replacement for every screen it drives.
+(`#define _ENABLEIGGY` is unconditional in `Windows64_UIController.cpp`).
 
-**This is currently and deliberately bypassed, not solved.** Two facts make that
-tractable:
+This section used to say Iggy was "prebuilt Windows-only `.lib`/`.dll`, zero source,
+zero Linux equivalent … a bigger, harder wall than Render/Input/Storage/Profile
+combined". **That was wrong.** Two things it missed:
+
+- Iggy's **OpenGL** GDraw backend ships as *source* in this tree
+  (`Windows64/Iggy/gdraw/gdraw_gl_shared.inl`), built by no `.vcxproj` and containing
+  no Windows API calls.
+- `Orbis/Iggy/lib/libiggy_orbis.a` — the PS4 build of the portable core — is **ELF
+  x86-64 with the System V ABI**, unstripped, and therefore linkable on Linux.
+
+So Iggy did not need reimplementing (which would have meant writing a Flash player with
+an AVM2 interpreter — all layout, focus and hit-testing lives in 9.4 MB of ActionScript
+inside the SWF assets). It needed a platform layer and some SDL glue. That now exists
+under `Minecraft.Client/Linux/Iggy/`: all 335 SWFs load and run their ActionScript, and
+real menu screens render through Iggy's own GL backend with zero GL errors.
+
+**Read `IGGY.md` before touching any of it** — in particular the 2461 relocations that
+must be rewritten, and the 96-byte `jmp_buf`.
+
+**The client links it now, and the bypass has been unpicked** — the frontend boots
+through real Iggy scenes and `TemporaryCreateGameStart()` survives only behind
+`--direct-world`. The two facts below are what made the *original* bypass tractable; the
+first is still load-bearing (it is why `ui.render()` can be bracketed as one region), the
+second is now only a debug shortcut:
 
 1. **The in-game HUD and 3D world rendering are Iggy-free.**
    `GameRenderer::render()` draws the world via `LevelRenderer` then calls
@@ -124,24 +142,21 @@ surface — real Iggy asset loading never happens. A small subset of `Common/UI/
 non-Iggy "component" overlays like the HUD/tooltips/debug-console popups, and the
 `IUIScene_*` container-family mixins) IS compiled in, because the trunk transitively
 needs it; the ~100 concrete `UIScene_*.cpp`/`IUIScene_*` **menu screens** are not.
-`Minecraft.Client/Linux/LinuxExtras/LinuxIggyShim.cpp` provides no-op bodies for the
-actual Iggy C-API functions (`IggyValueSetBooleanRS`, `IggyFontInstallTruetypeUTF8`,
-etc.) that this compiled-in infrastructure calls, so nothing links against real Iggy
-at all.
-
-**Getting from "boots into a world" to "has a real title screen / pause menu /
-inventory" is unsolved and is a separate, much larger future effort** — either a
-from-scratch reimplementation of enough of Iggy's feature set to satisfy
-`UIController`, or a native replacement for just the handful of screens actually
-needed, drawn through the already-working `LinuxRender`/`Tesselator` path instead of
-Iggy.
+> **The two paragraphs above are HISTORICAL.** They describe the Phase 7 shape, kept
+> because the seam they document is still the seam. As of Phase 8 all of it is superseded:
+> the whole of `Common/UI/*` is compiled (minus the two files the vcxproj itself excludes),
+> `LinuxUIController` is a real controller driving real Iggy scenes, and
+> `LinuxIggyShim.cpp` has been **deleted** — the client links the vendor Iggy core, so
+> those no-op bodies would be duplicate definitions of the real entry points.
+> `.claude/linux-port/IGGY.md` is the current description; read it instead of this section.
 
 ## Other singletons a boot needs
 
 Beyond the four 4J middleware singletons, the boot sequence also needs:
 
 - **`app`** (`CConsoleMinecraftApp`-shaped) → `Linux_MinecraftApp.h/.cpp`
-- **`ui`** (`ConsoleUIController`-shaped, no-op stand-in) → `LinuxUIController.h/.cpp`
+- **`ui`** (`ConsoleUIController`-shaped) → `LinuxUIController.h/.cpp` — a real
+  controller since Phase 8, driving the vendor Iggy core through GDraw's GL backend
 - **`SentientManager`** (telemetry) — trivial no-op; only one live (non-commented-out)
   call site exists in the entire non-console codebase
 - **`g_NetworkManager`** (`CGameNetworkManager`) — already has a working stub backend
@@ -156,13 +171,15 @@ Mirrors `Windows64_Minecraft.cpp`'s real shape, with SDL2 replacing
 Win32/D3D11/`PeekMessage`, and the Iggy title-screen flow replaced by the direct
 launch above:
 
-1. SDL2 window + GL 3.3 core context (`Linux_App.cpp`)
+1. SDL2 window + GL 3.3 **compatibility** context (`Linux_App.cpp`) - compatibility is
+   required by GDraw's GL backend, not a preference; see `IGGY.md`
 2. `RenderManager.Initialise(window handle)`
 3. `app.loadMediaArchive()` / `app.loadStringTable()` — needs a real `_LINUX64`
    branch (added in `Common/Consoles_App.cpp`) to find `Common/Media/MediaWindows64.arc`
-4. `ui.Boot(width, height)` — a public wrapper this port added around
-   `UIController`'s protected `preInit()`/`postInit()`; safe because every real Iggy
-   call inside resolves to `LinuxIggyShim.cpp`'s no-ops
+4. `ui.init(width, height)` — `preInit()` → `gdraw_GL_SetResourceLimits` →
+   `gdraw_GL_CreateContext` → `IggySetGDraw` → `postInit()`, which ends by navigating to
+   `eUIScene_Intro`. (Was `ui.Boot()` in Phase 7, when every Iggy call inside resolved to
+   a no-op shim; that shim is gone and these are real calls now.)
 5. `InputManager.Initialise(...)` + `DefineActions()` (ported verbatim from
    `Windows64_Minecraft.cpp` — populates the joypad action-map table so
    `GetValue(MINECRAFT_ACTION_*)` resolves to real button bits)

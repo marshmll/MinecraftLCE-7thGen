@@ -6,7 +6,11 @@
 - SDL2 (headers + `.so` + pkg-config `sdl2.pc`)
 - GLEW (GL 3.3 core function loader — chosen over vendoring GLAD since it's a normal
   distro package)
-- Mesa/OpenGL (`libGL`, `libGLX`)
+- Mesa/OpenGL (`libGL`, `libGLX`) - and a driver that can give a **compatibility**
+  profile, which Iggy's GDraw backend requires (see `IGGY.md`). Mesa does; so do the
+  proprietary drivers. `Linux_App.cpp` asks for 3.3 compatibility.
+- Python 3, used at build time to adapt the vendor Iggy archive
+  (`Minecraft.Client/Linux/Iggy/patch_orbis_iggy.py`)
 - OpenAL-soft (headers + `.so` + pkg-config `openal.pc`)
 
 All of the above resolve via `find_package`/pkg-config fallback chains in
@@ -48,6 +52,28 @@ Pass `--smoke-test` to run the old Phase 3-5 standalone regression check instead
 the real game (rotating test triangle + throwaway input/storage/audio self-tests,
 useful for isolating whether a regression is in the renderer/input/storage/audio
 subsystems themselves vs. the real game logic built on top of them).
+
+Pass `--direct-world` to skip the frontend and launch a world immediately - the boot
+path this port used for all of Phase 7. It closes the intro scenes first
+(`CloseAllPlayersScenes()`), which matters: a displayed menu legitimately blocks
+gameplay input via `Minecraft.cpp:2238`, so without that the world would be unplayable
+underneath the intro. Use it to test gameplay without clicking through menus, or if the
+UI regresses.
+
+By default the client now boots the **real Iggy frontend** (intro, panorama, logo,
+message boxes, and the authentic in-game HUD). See `.claude/linux-port/IGGY.md`.
+
+`iggy_spike` is a separate target for testing UI assets without the game:
+
+```
+cmake --build build --target iggy_spike
+# headless: parse + run the ActionScript for any set of SWFs
+./build/Minecraft.Client/Linux/Iggy/iggy_spike --media Minecraft.Client \
+    Minecraft.Client/Common/Media/MainMenu720.swf
+# render one scene and screenshot it
+./build/Minecraft.Client/Linux/Iggy/iggy_spike --media Minecraft.Client \
+    --render Minecraft.Client/Common/Media/MainMenu1080.swf /tmp/shot.png
+```
 
 ## Controls
 

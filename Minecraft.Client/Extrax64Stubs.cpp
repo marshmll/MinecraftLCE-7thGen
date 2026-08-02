@@ -474,7 +474,28 @@ void				C_4JProfile::SetTrialAwardText(eAwardType AwardType,int iTitle,int iText
 int					C_4JProfile::GetLockedProfile() { return 0; }
 void				C_4JProfile::SetLockedProfile(int iProf) {}
 bool				C_4JProfile::IsSignedIn(int iQuadrant) { return ( iQuadrant == 0); }
+#ifdef _LINUX64
+// Linux has no online service behind it at all - CGameNetworkManager resolves to
+// CPlatformNetworkManagerStub (GameNetworkManager.cpp's #else) and IQNet is the fake in this
+// file - so claiming to be signed in to Live is a lie that steers the whole frontend into
+// online code paths that cannot complete.
+//
+// Concretely, with this returning true: UIScene_CreateWorldMenu.cpp:82 sets
+// m_bMultiplayerAllowed, :1077 computes `isClientSide = IsSignedInLive() && bOnlineGame`
+// (and eGameSetting_Online defaults to 1, Consoles_App.cpp:725, with the Online checkbox
+// not even compiled on Linux), so :1181 calls HostGame(..., isClientSide=true, ...) and
+// SetLocalGame(false) sticks for the whole session. A single-player world then runs as a
+// network client, which is why exiting produced a disconnect-driven
+// "Connection to the server was lost" message box - IUIScene_PauseMenu's _ExitWorld only
+// shows that box when the exit was requested with a non-NULL param, i.e. by one of
+// ClientConnection/GameNetworkManager's `(void *)TRUE` disconnect callers.
+//
+// Windows64 keeps the original value: it is the same stub, but changing it is not this
+// port's business.
+bool				C_4JProfile::IsSignedInLive(int iProf) { return false; }
+#else
 bool				C_4JProfile::IsSignedInLive(int iProf) { return true; }
+#endif
 bool				C_4JProfile::IsGuest(int iQuadrant) { return false; }
 UINT				C_4JProfile::RequestSignInUI(bool bFromInvite,bool bLocalGame,bool bNoGuestsAllowed,bool bMultiplayerSignIn,bool bAddUser, int( *Func)(LPVOID,const bool, const int iPad),LPVOID lpParam,int iQuadrant) { return 0; }
 UINT				C_4JProfile::DisplayOfflineProfile(int( *Func)(LPVOID,const bool, const int iPad),LPVOID lpParam,int iQuadrant)  { return 0; }

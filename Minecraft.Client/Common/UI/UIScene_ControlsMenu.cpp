@@ -12,6 +12,12 @@ UIScene_ControlsMenu::UIScene_ControlsMenu(int iPad, void *initData, UILayer *pa
 	IggyDataValue result;
 	IggyDataValue value[1];
 	value[0].type = IGGY_DATATYPE_number;
+	// Seeded before the chain below, the same way UIComponent_DebugUIMarketingGuide does
+	// it, because the chain has no #else: on any platform it does not list (Linux) the
+	// number was left uninitialised and stack garbage was handed to the movie's
+	// SetPlatform(), which is what picks the controller diagram. Linux shares index 0
+	// with Windows64 - it uses Windows64's skin assets and the same button prompts.
+	value[0].number = (F64)0;
 #if defined(_XBOX) || defined(_WIN64)
 	value[0].number = (F64)0;
 #elif defined(_DURANGO)

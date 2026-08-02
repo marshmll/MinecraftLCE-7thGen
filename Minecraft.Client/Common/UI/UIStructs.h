@@ -179,7 +179,17 @@ typedef struct _CreateWorldMenuInitData
 	BOOL bOnline;
 	BOOL bIsPrivate;
 	int iPad;
-} 
+
+	// The one caller (UIScene_LoadOrJoinMenu) sets only iPad, so without this the
+	// other two were whatever the heap happened to hold. Harmless while
+	// UIScene_CreateWorldMenu ignores initData, but not something to leave armed.
+	_CreateWorldMenuInitData()
+	{
+		bOnline = FALSE;
+		bIsPrivate = FALSE;
+		iPad = -1;
+	}
+}
 CreateWorldMenuInitData;
 
 // Join/Load saves list
@@ -265,15 +275,41 @@ typedef struct _LaunchMoreOptionsMenuInitData
 
 	_LaunchMoreOptionsMenuInitData()
 	{
-		memset(this,0,sizeof(_LaunchMoreOptionsMenuInitData));
+		// Every member is assigned explicitly below. This used to be
+		// memset(this,0,sizeof(_LaunchMoreOptionsMenuInitData)) followed by the
+		// non-zero defaults, but `seed` is a std::wstring, and memsetting over a live
+		// one is undefined behaviour: it clears the internal pointer, so the string
+		// no longer recognises its own small-buffer and believes it owns a heap
+		// allocation of capacity 0. The `seed = L""` below then took libstdc++'s
+		// "fits in existing capacity" path and wrote the terminator through a null
+		// pointer, crashing every screen derived from IUIScene_StartGame (create
+		// world and load world). MSVC happened to survive it because a zeroed
+		// _Myres still selects the small-string buffer - this was latent, not
+		// Linux-specific.
 		bOnlineGame = TRUE;
+		bInviteOnly = FALSE;
 		bAllowFriendsOfFriends = TRUE;
+
+		bGenerateOptions = FALSE;
+		bStructures = FALSE;
+		bFlatWorld = FALSE;
+		bBonusChest = FALSE;
+
 		bPVP = TRUE;
+		bTrust = FALSE;
 		bFireSpreads = TRUE;
 		bTNT = TRUE;
+
+		bHostPrivileges = FALSE;
+		bResetNether = FALSE;
+
+		bOnlineSettingChangedBySystem = FALSE;
+
 		iPad = -1;
+
+		dwTexturePack = 0;
+
 		worldSize = 3;
-		seed = L"";
 		bDisableSaving = false;
 	}
 } 

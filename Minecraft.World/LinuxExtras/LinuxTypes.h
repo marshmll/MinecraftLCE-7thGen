@@ -11,7 +11,26 @@
 #include <cstdint>
 #include <cwchar>
 
-typedef unsigned long       DWORD;
+// Win32's DWORD is 32-bit on every Windows target - `unsigned long` is 32-bit under
+// LLP64, but 64-bit under the LP64 model Linux uses, so spelling it that way here made
+// every DWORD twice the size the shared code assumes.
+//
+// That is not merely a size difference: the shared code type-puns through it. The one
+// that surfaced was UIScene_FullscreenProgress::tick():
+//
+//     int code = thread->GetExitCode();      // 4 bytes
+//     DWORD exitcode = *((DWORD *)&code);    // read 8 bytes from a 4-byte object
+//
+// The upper 4 bytes came from adjacent stack, so `exitcode != STILL_ACTIVE` was true even
+// when the low 32 bits held exactly STILL_ACTIVE (0x103) - the progress screen concluded
+// that the world-launch and exit-to-menu threads had *failed* and raised
+// "Connection to the server was lost. Exiting to the main menu."
+//
+// It also silently corrupted every DWORD passed through varargs (DebugPrintf's "%d"/"%x"),
+// every LPDWORD out-param (GetExitCodeThread wrote 8 bytes through one), and the layout of
+// every struct with a DWORD member - including the save-file and profile blobs, which are
+// now the same size the MSVC builds produce.
+typedef unsigned int        DWORD;
 typedef int                 BOOL;
 typedef unsigned char       BYTE;
 typedef unsigned short      WORD;
@@ -28,21 +47,26 @@ typedef BOOL    *PBOOL, *LPBOOL;
 typedef BYTE    *PBYTE, *LPBYTE;
 typedef int     *PINT, *LPINT;
 typedef WORD    *PWORD, *LPWORD;
-typedef long    *PLONG, *LPLONG;
 typedef DWORD   *PDWORD, *LPDWORD;
 typedef void    *PVOID, *LPVOID;
 typedef const void *LPCVOID;
 typedef unsigned int *PUINT;
 
-typedef unsigned long ULONG;
+// 32-bit on Windows, for the same LLP64-vs-LP64 reason as DWORD above.
+typedef unsigned int ULONG;
 typedef unsigned char boolean;
+// ULONG_PTR/SIZE_T *are* pointer-sized, so `unsigned long` is right for these two.
 typedef unsigned long ULONG_PTR, *PULONG_PTR;
 typedef ULONG_PTR SIZE_T, *PSIZE_T;
 
 #define VOID void
 typedef char CHAR;
 typedef short SHORT;
-typedef long LONG;
+// Also 32-bit on Windows. Beyond the obvious, this one is load-bearing for
+// LARGE_INTEGER below: that union overlays `struct { DWORD LowPart; LONG HighPart; }`
+// on a 64-bit LONGLONG, which only works if both halves are 4 bytes.
+typedef int LONG;
+typedef LONG *PLONG, *LPLONG;   // LONG, not `long`
 typedef __int64 LONGLONG;
 typedef __uint64 ULONGLONG;
 typedef __int64 LONG64, *PLONG64;
@@ -87,7 +111,7 @@ typedef union _ULARGE_INTEGER {
     ULONGLONG QuadPart;
 } ULARGE_INTEGER, *PULARGE_INTEGER;
 
-typedef long   HRESULT;
+typedef int    HRESULT;   // 32-bit on Windows, like LONG
 typedef void  *HANDLE;
 
 #define DECLARE_HANDLE(name) typedef HANDLE name

@@ -599,7 +599,10 @@ void UIScene_CreateWorldMenu::StartSharedLaunchFlow()
 				TelemetryManager->RecordUpsellPresented(m_iPad, eSet_UpsellID_Texture_DLC, ullOfferID_Full & 0xFFFFFFFF);
 #endif
 
-#if defined(_DURANGO) || defined(_WINDOWS64)
+// _LINUX64 joins the Durango/Windows64 case. This chain has no #else, so on Linux no
+// message box was raised - and the `return` below then left the screen with
+// m_bIgnoreInput still true (set further up), i.e. a silent soft-lock with no way out.
+#if defined(_DURANGO) || defined(_WINDOWS64) || defined(_LINUX64)
 				// trial pack warning
 				UINT uiIDA[1];
 				uiIDA[0]=IDS_CONFIRM_OK;
@@ -619,7 +622,10 @@ void UIScene_CreateWorldMenu::StartSharedLaunchFlow()
 			}
 		}
 	}
-#if defined _XBOX_ONE || defined __ORBIS__
+// Linux honours the More-Options "Disable saving" toggle too - LinuxStorage.cpp
+// implements SetSaveDisabled (SaveSaveData early-outs on it). Without _LINUX64 here the
+// checkbox silently did nothing and the host option kept whatever the previous world set.
+#if defined _XBOX_ONE || defined __ORBIS__ || defined _LINUX64
 	app.SetGameHostOption(eGameHostOption_DisableSaving, m_MoreOptionsParams.bDisableSaving?1:0);
 	StorageManager.SetSaveDisabled(m_MoreOptionsParams.bDisableSaving);
 #endif

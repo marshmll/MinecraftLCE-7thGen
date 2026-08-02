@@ -316,12 +316,11 @@ typedef XUID GameSessionUID;
 	// Minecraft.spa/ATGXmlParser/SocialManager reused from Windows64 - plain
 	// data/declarations, nothing Windows-specific (SocialManager's real
 	// bodies are already stubbed in Extrax64Stubs.cpp). iggy.h is the real
-	// vendor SDK header (portable C++ declarations; the compiled runtime is
-	// what's Windows/console-only - see LinuxIggyShim.cpp). gdraw_d3d11.h is
-	// deliberately NOT included: it's the D3D11 GDraw backend, and nothing
-	// reachable on Linux (LinuxUIController::render() is a no-op) needs it -
-	// the generic GDrawFunctions/GDrawTexture opaque types from iggy.h's
-	// #include of gdraw.h are all UIController.h itself requires.
+	// vendor SDK header, and on Linux the runtime behind it is real too: the
+	// PS4 core is linked and GDraw's OpenGL backend is built from source, so
+	// LinuxUIController::render() drives actual Iggy scenes. gdraw_d3d11.h is
+	// deliberately NOT included - that is the D3D11 backend; Linux uses the GL
+	// one, included just below.
 	#include "Windows64/Sentient/MinecraftTelemetry.h"
 	#include "Windows64Media/strings.h"
 	#include "Linux/LinuxExtras/Linux_MinecraftApp.h"
@@ -332,6 +331,17 @@ typedef XUID GameSessionUID;
 	#include "Windows64/Social/SocialManager.h"
 	#include "Common/Audio/SoundEngine.h"
 	#include "Windows64/Iggy/include/iggy.h"
+	// GDraw's GL backend, the Linux counterpart of the other platforms'
+	// gdraw_<backend>.h include. Despite living next to the WGL glue this header is
+	// portable - it includes only rrCore.h and gdraw.h - so it is reused rather than
+	// copied. Iggy is real on Linux now; see .claude/linux-port/IGGY.md.
+	#include "Windows64/Iggy/gdraw/gdraw_wgl.h"
+	// The handful of entry points GDraw's GL backend lacks relative to D3D11's, which
+	// the shared UI code calls: gdraw_GL_setViewport_4J (custom draw),
+	// gdraw_GL_CalculateCustomDraw, and the host-GL-state bracket. Safe to include
+	// from game code - it pulls in only rrCore.h and gdraw.h, never <GL/gl.h>, so it
+	// does not collide with stubs.h's legacy gl* declarations.
+	#include "Linux/Iggy/gdraw_sdl.h"
 	#include "Linux/LinuxExtras/LinuxUIController.h"
 #elif defined __PSVITA__
 	#include "PSVita/PSVita_App.h"
