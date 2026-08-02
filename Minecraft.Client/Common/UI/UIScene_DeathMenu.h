@@ -1,8 +1,16 @@
 #pragma once
 
 #include "UIScene.h"
+#include "IUIScene_PauseMenu.h"
 
-class UIScene_DeathMenu : public UIScene
+// Derives from IUIScene_PauseMenu because it reuses that interface's exit-dialog
+// callbacks (ExitGameDialogReturned / ExitGameSaveDialogReturned), and those cast the
+// pParam they are handed straight to IUIScene_PauseMenu*. Previously this class passed a
+// raw `this` while not deriving from the interface at all, so the callbacks reinterpreted
+// an unrelated type and their scene->SetIgnoreInput(true) call dispatched through whatever
+// sat in that vtable slot - UIScene::reloadMovie(bool). Same defect as UIScene_PauseMenu's,
+// but worse, because there the two types were at least related by inheritance.
+class UIScene_DeathMenu : public UIScene, public IUIScene_PauseMenu
 {
 private:
 	enum EControls
@@ -37,6 +45,12 @@ public:
 
 protected:
 	void handlePress(F64 controlId, F64 childId);
+
+	// IUIScene_PauseMenu's two pure virtuals. SetIgnoreInput is what the exit-dialog
+	// callbacks invoke, and this scene already had the m_bIgnoreInput flag it should be
+	// driving (handleInput checks it) - it just had no way to be set.
+	virtual void ShowScene(bool show);
+	virtual void SetIgnoreInput(bool ignoreInput);
 
 #ifdef _DURANGO	
 	virtual long long getDefaultGtcButtons() { return 0; }

@@ -687,27 +687,57 @@ void UIScene_PauseMenu::handlePress(F64 controlId, F64 childId)
 						ui.RequestMessageBox(IDS_EXIT_GAME, IDS_CONFIRM_EXIT_GAME, uiIDA, 2, m_iPad,&IUIScene_PauseMenu::ExitGameDialogReturned, dynamic_cast<IUIScene_PauseMenu*>(this), app.GetStringTable(), NULL, 0, false);
 					}
 #else
+					// IUIScene_PauseMenu is a *secondary* base of UIScene_PauseMenu (after
+					// UIScene), so its subobject does not start at `this`. The four
+					// IUIScene_PauseMenu callbacks that touch pParam - ExitGameDialogReturned,
+					// ExitGameSaveDialogReturned, ExitGameAndSaveReturned and
+					// ExitGameDeclineSaveReturned - do `(IUIScene_PauseMenu *)pParam`, a plain
+					// reinterpret_cast with no offset adjustment. Passing a raw `this` therefore
+					// hands them a pointer that is off by the size of the UIScene subobject, and
+					// the `scene->SetIgnoreInput(true)` they then perform lands on whatever
+					// occupies that vtable slot at offset 0 - which is UIScene::reloadMovie(bool).
+					// The pause menu tore down and rebuilt its own Iggy player from inside the
+					// message-box callback, and input was never actually locked, so Exit could be
+					// fired twice.
+					//
+					// dynamic_cast does the adjustment. That is already the established form in
+					// this file (see the _XBOX_ONE/__ORBIS__ branch above, and the callbacks
+					// further down), so this just brings the remaining sites into line.
+					IUIScene_PauseMenu *pauseMenuIface = dynamic_cast<IUIScene_PauseMenu *>(this);
+
+					// The ExitGameSaveDialogReturned sites below are spelled
+					// `UIScene_PauseMenu::`, and PS3/PSVita/Orbis *do* declare a derived override
+					// (guarded further down in this file) which casts pParam back to
+					// UIScene_PauseMenu*, so those platforms must keep passing the unadjusted
+					// `this`. Everywhere else the name resolves to the inherited base, which
+					// wants the adjusted pointer.
+#if defined(__PS3__) || defined(__PSVITA__) || defined(__ORBIS__)
+					void *saveDialogParam = this;
+#else
+					void *saveDialogParam = pauseMenuIface;
+#endif
+
 					if(StorageManager.GetSaveDisabled())
 					{
 						uiIDA[0]=IDS_CONFIRM_CANCEL;
 						uiIDA[1]=IDS_CONFIRM_OK;
-						ui.RequestMessageBox(IDS_EXIT_GAME, IDS_CONFIRM_EXIT_GAME_PROGRESS_LOST, uiIDA, 2, m_iPad,&IUIScene_PauseMenu::ExitGameDialogReturned,this, app.GetStringTable(), NULL, 0, false);
+						ui.RequestMessageBox(IDS_EXIT_GAME, IDS_CONFIRM_EXIT_GAME_PROGRESS_LOST, uiIDA, 2, m_iPad,&IUIScene_PauseMenu::ExitGameDialogReturned,pauseMenuIface, app.GetStringTable(), NULL, 0, false);
 					}
 					else
 					{
 						if( g_NetworkManager.IsHost() )
-						{	
+						{
 							uiIDA[0]=IDS_CONFIRM_CANCEL;
 							uiIDA[1]=IDS_EXIT_GAME_SAVE;
 							uiIDA[2]=IDS_EXIT_GAME_NO_SAVE;
 
 							if(g_NetworkManager.GetPlayerCount()>1)
 							{
-								ui.RequestMessageBox(IDS_EXIT_GAME, IDS_CONFIRM_EXIT_GAME_CONFIRM_DISCONNECT_SAVE, uiIDA, 3, m_iPad,&UIScene_PauseMenu::ExitGameSaveDialogReturned,this, app.GetStringTable(), NULL, 0, false);
+								ui.RequestMessageBox(IDS_EXIT_GAME, IDS_CONFIRM_EXIT_GAME_CONFIRM_DISCONNECT_SAVE, uiIDA, 3, m_iPad,&UIScene_PauseMenu::ExitGameSaveDialogReturned,saveDialogParam, app.GetStringTable(), NULL, 0, false);
 							}
 							else
 							{
-								ui.RequestMessageBox(IDS_EXIT_GAME, IDS_CONFIRM_EXIT_GAME, uiIDA, 3, m_iPad,&UIScene_PauseMenu::ExitGameSaveDialogReturned,this, app.GetStringTable(), NULL, 0, false);
+								ui.RequestMessageBox(IDS_EXIT_GAME, IDS_CONFIRM_EXIT_GAME, uiIDA, 3, m_iPad,&UIScene_PauseMenu::ExitGameSaveDialogReturned,saveDialogParam, app.GetStringTable(), NULL, 0, false);
 							}
 						}
 						else
@@ -715,7 +745,7 @@ void UIScene_PauseMenu::handlePress(F64 controlId, F64 childId)
 							uiIDA[0]=IDS_CONFIRM_CANCEL;
 							uiIDA[1]=IDS_CONFIRM_OK;
 
-							ui.RequestMessageBox(IDS_EXIT_GAME, IDS_CONFIRM_EXIT_GAME, uiIDA, 2, m_iPad,&IUIScene_PauseMenu::ExitGameDialogReturned,this, app.GetStringTable(), NULL, 0, false);
+							ui.RequestMessageBox(IDS_EXIT_GAME, IDS_CONFIRM_EXIT_GAME, uiIDA, 2, m_iPad,&IUIScene_PauseMenu::ExitGameDialogReturned,pauseMenuIface, app.GetStringTable(), NULL, 0, false);
 						}
 					}
 #endif
