@@ -268,10 +268,17 @@ static int                           gdraw_sdl_trace_draws;
 static void RADLINK gdraw_sdl_trace_draw(GDrawRenderState *r, GDrawPrimitive *prim,
                                         GDrawVertexBuffer *buf, GDrawStats *stats)
 {
-   if (r && prim && r->tex0_mode != GDRAW_TEXTURE_none) {
+   /* Untextured draws are traced too: a Flash solid/gradient fill - a slider's value
+      bar, a focus highlight - carries no texture, so filtering on tex0_mode hides
+      exactly the draws you look at when something is drawn in the wrong PLACE rather
+      than with the wrong pixels. stencil_set/stencil_test matter for the same reason:
+      together with scissor they are the only two ways GDraw clips anything, so an
+      overflowing fill is a draw that arrives with all three saying "clip nothing". */
+   if (r && prim) {
       fprintf(stderr,
               "[gdraw] draw#%d tex0mode=%u tex0=%p texgen=%u vfmt=%d idx=%d "
-              "scissor=%u[%d,%d,%d,%d] test_id=%u set_id=%u wrap0=%u near0=%u "
+              "scissor=%u[%d,%d,%d,%d] sten_set=%u sten_test=%u "
+              "test_id=%u set_id=%u wrap0=%u near0=%u "
               "s=[%.4f %.4f %.4f %.4f] t=[%.4f %.4f %.4f %.4f]\n",
               gdraw_sdl_trace_draws++,
               (unsigned)r->tex0_mode, (void *)r->tex[0],
@@ -279,6 +286,7 @@ static void RADLINK gdraw_sdl_trace_draw(GDrawRenderState *r, GDrawPrimitive *pr
               (unsigned)r->scissor,
               r->scissor_rect.x0, r->scissor_rect.y0,
               r->scissor_rect.x1, r->scissor_rect.y1,
+              (unsigned)r->stencil_set, (unsigned)r->stencil_test,
               (unsigned)r->test_id, (unsigned)r->set_id,
               (unsigned)r->wrap0, (unsigned)r->nearest0,
               r->s0_texgen[0], r->s0_texgen[1], r->s0_texgen[2], r->s0_texgen[3],

@@ -1733,7 +1733,15 @@ void Minecraft::run_middle()
 						// any input received?
 						if((localplayers[idx]->ullButtonsPressed!=0) || InputManager.GetJoypadStick_LX(idx,false)!=0.0f ||
 							InputManager.GetJoypadStick_LY(idx,false)!=0.0f || InputManager.GetJoypadStick_RX(idx,false)!=0.0f ||
-							InputManager.GetJoypadStick_RY(idx,false)!=0.0f )
+							InputManager.GetJoypadStick_RY(idx,false)!=0.0f
+#ifdef _LINUX64
+							// Mouse look does not go through the stick axes (it is applied
+							// straight to the camera in GameRenderer::render), so without
+							// this a keyboard+mouse player who is only looking around gets
+							// flagged idle after 200 ticks.
+							|| (idx==0 && InputManager.MouseMovedRecently())
+#endif
+							)
 						{
 							localplayers[idx]->ResetInactiveTicks();
 						}
@@ -3177,6 +3185,33 @@ void Minecraft::tick(bool bFirst, bool bUpdateTextures)
 		{
 			wheel = -1;
 		}
+
+#ifdef _LINUX64
+		// Mouse wheel -> hotbar, the desktop binding. Drained here rather than per
+		// frame because this function runs zero times in most frames above 20fps, so
+		// anything only latched for a frame would be missed; LinuxInput banks the
+		// notches until this call takes them.
+		//
+		// Sign matches swapPaint's convention and desktop Minecraft's: scrolling away
+		// from the user is wheel = +1, which moves the selection left.
+		if (wheel == 0 &&
+		    (gameMode->isInputAllowed(MINECRAFT_ACTION_LEFT_SCROLL) || gameMode->isInputAllowed(MINECRAFT_ACTION_RIGHT_SCROLL)))
+		{
+			int iNotches = InputManager.ConsumeMouseWheel();
+			if (iNotches != 0)
+			{
+				int iDir = iNotches > 0 ? 1 : -1;
+				int iCount = iNotches > 0 ? iNotches : -iNotches;
+				// swapPaint clamps to a single step, so a fast flick would otherwise
+				// move one slot however many notches it clicked. The shared block
+				// below applies the last step; apply the rest here.
+				for (int n = 1; n < iCount; n++)
+					player->inventory->swapPaint(iDir);
+				wheel = iDir;
+			}
+		}
+#endif
+
 		if (wheel != 0)
 		{
 			player->inventory->swapPaint(wheel);
@@ -3424,6 +3459,23 @@ void Minecraft::tick(bool bFirst, bool bUpdateTextures)
 				player->inventory->selected=(pTouchData->report[0].x-QuickSelectRect[iHudSize].left)/QuickSelectBoxWidth[iHudSize];
 				selected = true;
 				app.DebugPrintf("Touch %d\n",player->inventory->selected);
+			}
+		}
+#endif
+#ifdef _LINUX64
+		// Number row 1-9 -> hotbar slot, the other desktop binding. Absolute, so it
+		// cannot go through MINECRAFT_ACTION_* (there is no absolute-slot action, and
+		// swapPaint is relative) - it writes inventory->selected directly, exactly as
+		// the PSVita quickselect above does. Nothing else is needed: the carried-item
+		// packet is sent by MultiPlayerGameMode::ensureHasSentCarriedItem, which polls
+		// this field, and the HUD highlight polls it too.
+		{
+			int iSlot = InputManager.ConsumeHotbarSlotRequest();
+			if( iSlot >= 0 && iSlot < Inventory::getSelectionSize() &&
+				(gameMode->isInputAllowed(MINECRAFT_ACTION_LEFT_SCROLL) || gameMode->isInputAllowed(MINECRAFT_ACTION_RIGHT_SCROLL)) )
+			{
+				player->inventory->selected = iSlot;
+				selected = true;
 			}
 		}
 #endif

@@ -202,11 +202,11 @@ typedef XUID GameSessionUID;
 	#include "Windows64/4JLibs/inc/4J_Render.h"
 	#include "Windows64/4JLibs/inc/4J_Storage.h"
 #elif defined _LINUX64
-	// Input/Profile reused from Windows64 (portable interface declarations,
-	// same as Minecraft.World/stdafx.h's _LINUX64 branch). Render/Storage use
-	// the Linux-adapted copies (LinuxRender.cpp/LinuxStorage.cpp implement
-	// these exact headers - see Phase 4/Phase 2 respectively).
-	#include "Windows64/4JLibs/inc/4J_Input.h"
+	// Profile reused from Windows64 (portable interface declarations, same as
+	// Minecraft.World/stdafx.h's _LINUX64 branch). Input/Render/Storage use the
+	// Linux-adapted copies (LinuxInput.cpp/LinuxRender.cpp/LinuxStorage.cpp
+	// implement these exact headers - see Phase 4/Phase 2 respectively).
+	#include "Linux/4JLibs/inc/4J_Input.h"
 	#include "Windows64/4JLibs/inc/4J_Profile.h"
 	#include "Linux/4JLibs/inc/4J_Render.h"
 	#include "Linux/4JLibs/inc/4J_Storage.h"

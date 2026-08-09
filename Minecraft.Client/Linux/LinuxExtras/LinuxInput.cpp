@@ -1,16 +1,19 @@
-// LinuxInput.cpp - C_4JInput implementation backed by SDL2 keyboard + game
-// controller state. 4J_Input.h has no D3D/Win32-only types in its surface
+// LinuxInput.cpp - C_4JInput implementation backed by SDL2 keyboard + mouse +
+// game controller state. 4J_Input.h has no D3D/Win32-only types in its surface
 // (only LPVOID/WCHAR/DWORD/etc, already resolved via LinuxStubs.h/LinuxTypes.h),
-// so unlike 4J_Render.h/4J_Storage.h this reuses Windows64's header unchanged -
-// see Minecraft.World/stdafx.h's _LINUX64 branch.
+// so the Linux copy is Windows64's header plus the two mouse-look entry points.
 //
 // Pad 0 always mixes in keyboard state (WASD + arrows + space/enter/escape),
 // so the game is controllable with no physical controller attached. Pads 0-3
-// additionally read from up to 4 SDL_GameControllers if present.
+// additionally read from up to 4 SDL_GameControllers if present. The mouse is
+// pad 0's camera and is NOT routed through the stick axes - see ConsumeMouseLook.
 
 #include "LinuxTypes.h"
 #include "LinuxStubs.h"
-#include "../../Windows64/4JLibs/inc/4J_Input.h"
+#include "../4JLibs/inc/4J_Input.h"
+// For ACTION_MAX_MENU - the split between menu and gameplay actions, which
+// GameplayActionBlocked() below needs. Standalone header, plain enums only.
+#include "../../Common/App_enums.h"
 
 #include <SDL2/SDL.h>
 
@@ -52,53 +55,69 @@ namespace
 		unsigned int axisMap[4] = { AXIS_MAP_LX, AXIS_MAP_LY, AXIS_MAP_RX, AXIS_MAP_RY };
 		unsigned int triggerMap[2] = { TRIGGER_MAP_0, TRIGGER_MAP_1 };
 
-		// Pad 0 only: smoothed mouse velocity in pixels/second, +X right, +Y up.
+		// Pad 0 only: raw mouse motion in pixels since the last drain, +X right,
+		// +Y up. Deliberately NOT a stick deflection and NOT smoothed - mouse look
+		// is a displacement, so the camera must rotate by an amount proportional to
+		// the pixels moved, however fast they arrive. See ConsumeMouseLook().
+		float mouseAccumX = 0.0f;
+		float mouseAccumY = 0.0f;
+		double lastMouseMotionTime = 0.0;
+
+		// Pad 0 only: hotbar input that has no _360_JOY_BUTTON_* equivalent.
 		//
-		// Velocity rather than a raw per-frame delta because that is what the
-		// interface being emulated actually means: ReadAxis() is a "where is the
-		// stick right now" sample that several callers take, at different rates,
-		// any number of times per tick. Anything consumed-on-read breaks those
-		// callers, and a raw per-frame delta is meaningless to a 20Hz reader when
-		// Tick() runs at ~100Hz.
-		float mouseVelX = 0.0f;
-		float mouseVelY = 0.0f;
+		// Both are banked until drained rather than sampled, because the reader is
+		// Minecraft::tick(), which runs ZERO times in most frames above 20fps. Any
+		// "is it pressed right now" state would be missed most of the time.
+		int wheelNotches = 0;       // mouse wheel, + = away from the user
+		int hotbarSlotRequest = -1; // 0-8 from the number row, -1 = nothing pending
+		unsigned int hotbarKeysDown = 0; // bit per number key, for edge detection
 	};
 
 	PadState g_pads[MAX_PADS];
 	unsigned int g_joypadMap[MAX_MAPS][MAX_ACTIONS] = {};
 	AnalogRange g_analogRange;
 
-	// Mouse-look tuning. MOUSE_LOOK_GAIN is in stick-units^2 per (pixel/second):
-	// Input.cpp:102 turns a stick value into rotation as `tx * abs(tx) * 50` per
-	// 20Hz tick, i.e. degrees/sec = 1000 * tx^2. Feeding sqrt() of the velocity
-	// through that square therefore makes the turn rate LINEAR in mouse speed,
-	// which is what "natural" means for a mouse - passing velocity in directly
-	// gave a quadratic curve that felt dead when moving slowly and uncontrollable
-	// when moving fast.
-	//
-	// Because the square cancels, the resulting turn rate is simply
-	// degrees/sec = 1000 * velocity * GAIN, i.e. GAIN * 1000 degrees per pixel.
-	// 0.0008 gives 0.8 deg/pixel. This is the one number to change if look speed
-	// needs adjusting.
-	const float MOUSE_LOOK_GAIN = 0.0008f;
-	// Light smoothing over Tick()'s ~100Hz sampling so a 20Hz reader sees a
-	// stable value rather than whichever single frame it happened to land on.
-	const float MOUSE_VEL_SMOOTHING = 0.65f;
-	double g_lastMouseSampleTime = 0.0;
-
-	// Velocity (px/s) -> stick deflection, pre-compensated for the quadratic above.
-	float MouseVelToStick(float vel)
-	{
-		float mag = std::sqrt(std::fabs(vel) * MOUSE_LOOK_GAIN);
-		if (mag > 1.0f) mag = 1.0f;
-		return vel < 0.0f ? -mag : mag;
-	}
+	// Nothing drains the accumulator while the client is not rendering (Minecraft's
+	// noRender path, a long stall, a level load). Without a bound, all of that
+	// motion would be banked and land in a single frame as one huge spin. A quarter
+	// turn's worth of pixels at any sane sensitivity is far more than a real flick.
+	const float MOUSE_ACCUM_MAX_PIXELS = 20000.0f;
+	// How long after the last motion the mouse still counts as "being used", for
+	// the AFK/idle check only (Minecraft.cpp) - it has nothing to do with look.
+	const double MOUSE_RECENT_MOTION_SECS = 0.25;
+	// Same reasoning as MOUSE_ACCUM_MAX_PIXELS: bound what can be banked while
+	// nothing is draining, so a spin of the wheel during a level load does not
+	// unwind into dozens of slot changes at once.
+	const int WHEEL_ACCUM_MAX_NOTCHES = 16;
+	// The hotbar has 9 slots (Inventory::SELECTION_SIZE) and SDL_SCANCODE_1..9 are
+	// contiguous, so the number row maps to slot 0-8 by subtraction.
+	const int HOTBAR_KEY_COUNT = 9;
 
 	float g_repeatDelaySecs = 0.3f;
 	float g_repeatRateSecs = 0.2f;
 	bool g_initialised = false;
 
 	double NowSeconds() { return SDL_GetTicks() / 1000.0; }
+
+	// Is this a GAMEPLAY action that a menu currently owning the pad should swallow?
+	//
+	// ReadAxis/ReadTrigger already refuse to report a stick while menuDisplayed is set;
+	// the button accessors did not, and that is a real leak rather than a nicety: the
+	// menu is driven through these same four accessors, and on Linux the menu's select
+	// key is SPACE/RETURN, which is also _360_JOY_BUTTON_A - i.e.
+	// MINECRAFT_ACTION_JUMP. Confirming a menu item made the player jump underneath it.
+	//
+	// A blanket block would make menus unusable, so split by action instead. The menu
+	// and gameplay actions share one enum (App_enums.h) but not one range: menu actions
+	// run ACTION_MENU_A..ACTION_MAX_MENU and every gameplay action is above it.
+	//
+	// 255 is the interface's "any button at all" wildcard (see ButtonPressed/ButtonDown
+	// below), used by prompts like Press-Start-To-Play that are themselves menus. It has
+	// to stay live or the frontend cannot be got past.
+	bool GameplayActionBlocked(int iPad, unsigned char ucAction)
+	{
+		return ucAction != 255 && ucAction > ACTION_MAX_MENU && g_pads[iPad].menuDisplayed;
+	}
 
 	// Raw physical -> _360_JOY_BUTTON_* bitmask (SDL_GameController + keyboard
 	// for pad 0). This is the "controller state", independent of the game's
@@ -217,8 +236,8 @@ void C_4JInput::Initialise(int iInputStateC, unsigned char ucMapC, unsigned char
 	// Confines/hides the cursor and switches SDL_GetRelativeMouseState() to
 	// report raw deltas each frame instead of absolute position - the same
 	// "mouse becomes the camera" capture every desktop FPS/Minecraft build
-	// uses. See ReadAxis()'s pad-0 RX/RY handling below for where the delta
-	// this produces actually gets consumed.
+	// uses. Tick() banks those deltas; ConsumeMouseLook() is where they get
+	// drained and turned into camera rotation.
 	SDL_SetRelativeMouseMode(SDL_TRUE);
 
 	for (int i = 0; i < MAX_PADS; i++)
@@ -254,39 +273,122 @@ void C_4JInput::Tick(void)
 			g_pads[i].lastInputTime = NowSeconds();
 	}
 
-	// Mouse-look: convert this frame's delta into a smoothed velocity that
-	// ReadAxis() can sample without consuming. SDL_GetRelativeMouseState() zeroes
+	// Mouse-look: bank this frame's raw delta. SDL_GetRelativeMouseState() zeroes
 	// its own delta on every call, so it must be read exactly once per frame -
-	// here - and nowhere else.
+	// here - and nowhere else. Accumulating rather than overwriting also makes the
+	// extra Tick() the catch-up loop performs (Minecraft.cpp) harmless instead of
+	// lossy: no motion is dropped no matter how often or how rarely this runs.
 	//
 	// Y is negated because SDL reports +dy for "mouse moved down" while this
-	// interface is up-positive (see ReadAxis).
+	// interface is up-positive (matching AXIS_MAP_RY).
 	int mouseDx = 0, mouseDy = 0;
 	SDL_GetRelativeMouseState(&mouseDx, &mouseDy);
 
-	double nowSecs = NowSeconds();
-	float dt = (float)(nowSecs - g_lastMouseSampleTime);
-	g_lastMouseSampleTime = nowSecs;
-	if (dt < 0.001f) dt = 0.001f;      // guard the first call and any clock stall
-	if (dt > 0.1f) dt = 0.1f;
-
-	float instX = (float)mouseDx / dt;
-	float instY = (float)-mouseDy / dt;
-	g_pads[0].mouseVelX += (instX - g_pads[0].mouseVelX) * MOUSE_VEL_SMOOTHING;
-	g_pads[0].mouseVelY += (instY - g_pads[0].mouseVelY) * MOUSE_VEL_SMOOTHING;
-
-	// Snap fully to rest once the mouse stops, so Input.cpp's rReset latch (which
-	// needs to observe an exactly-zero look axis once) can never be starved by an
-	// exponential tail that only asymptotically approaches zero.
-	if (mouseDx == 0 && mouseDy == 0 &&
-	    std::fabs(g_pads[0].mouseVelX) < 1.0f && std::fabs(g_pads[0].mouseVelY) < 1.0f)
+	if (mouseDx != 0 || mouseDy != 0)
 	{
-		g_pads[0].mouseVelX = 0.0f;
-		g_pads[0].mouseVelY = 0.0f;
+		g_pads[0].mouseAccumX = Clamp(g_pads[0].mouseAccumX + (float)mouseDx,
+		                              -MOUSE_ACCUM_MAX_PIXELS, MOUSE_ACCUM_MAX_PIXELS);
+		g_pads[0].mouseAccumY = Clamp(g_pads[0].mouseAccumY + (float)-mouseDy,
+		                              -MOUSE_ACCUM_MAX_PIXELS, MOUSE_ACCUM_MAX_PIXELS);
+
+		g_pads[0].lastMouseMotionTime = NowSeconds();
+		g_pads[0].lastInputTime = g_pads[0].lastMouseMotionTime;
 	}
 
-	if (mouseDx != 0 || mouseDy != 0)
-		g_pads[0].lastInputTime = nowSecs;
+	// Hotbar number row: latch a newly-pressed 1..9 as an absolute slot request and
+	// hold it until Minecraft::tick drains it. Edge-detected, so holding a key
+	// selects once rather than fighting whatever else moves the selection.
+	{
+		const Uint8 *keys = SDL_GetKeyboardState(nullptr);
+		unsigned int down = 0;
+		for (int slot = 0; slot < HOTBAR_KEY_COUNT; slot++)
+		{
+			if (keys[SDL_SCANCODE_1 + slot])
+			{
+				down |= (1u << slot);
+				// Newly pressed this frame wins; a later key pressed in the same
+				// frame overwrites an earlier one, which is the only sane answer.
+				if (!(g_pads[0].hotbarKeysDown & (1u << slot)))
+				{
+					g_pads[0].hotbarSlotRequest = slot;
+					g_pads[0].lastInputTime = NowSeconds();
+				}
+			}
+		}
+		g_pads[0].hotbarKeysDown = down;
+	}
+}
+
+// Called by CLinuxApp::PollEvents for every SDL_MOUSEWHEEL event.
+//
+// The wheel is the one input here that cannot be polled - SDL only reports it as an
+// event, and PollEvents drains the queue before C_4JInput::Tick() ever runs, so there
+// is no state left to sample. Hence this push, rather than a read in Tick().
+void LinuxInput_NotifyMouseWheel(int iNotches)
+{
+	int total = g_pads[0].wheelNotches + iNotches;
+	if (total > WHEEL_ACCUM_MAX_NOTCHES) total = WHEEL_ACCUM_MAX_NOTCHES;
+	if (total < -WHEEL_ACCUM_MAX_NOTCHES) total = -WHEEL_ACCUM_MAX_NOTCHES;
+	g_pads[0].wheelNotches = total;
+
+	if (iNotches != 0)
+		g_pads[0].lastInputTime = NowSeconds();
+}
+
+// Drain the banked wheel notches. Same one-caller rule as ConsumeMouseLook: the
+// caller is Minecraft::tick's _LINUX64 block, and draining anywhere else would eat
+// slot changes.
+int C_4JInput::ConsumeMouseWheel(void)
+{
+	// Discarded rather than banked while a menu owns the pad, matching
+	// ConsumeMouseLook and GameplayActionBlocked - otherwise scrolling a menu list
+	// would unwind into a burst of slot changes on the way back to gameplay.
+	int notches = g_pads[0].menuDisplayed ? 0 : g_pads[0].wheelNotches;
+	g_pads[0].wheelNotches = 0;
+	return notches;
+}
+
+// Drain a pending absolute hotbar slot (0-8), or -1 if none. Same one-caller rule.
+int C_4JInput::ConsumeHotbarSlotRequest(void)
+{
+	int slot = g_pads[0].menuDisplayed ? -1 : g_pads[0].hotbarSlotRequest;
+	g_pads[0].hotbarSlotRequest = -1;
+	return slot;
+}
+
+// Drain the banked mouse motion, in pixels (+X right, +Y up), and zero it.
+//
+// Consuming-on-read is safe here and only here: this has exactly one caller
+// (GameRenderer::render's _LINUX64 block, once per rendered frame). ReadAxis()
+// must never do this - it is a "where is the stick right now" sample that several
+// callers take at different rates, and draining it there silently starves whichever
+// of them happens to read second. That was a real bug earlier in this port.
+void C_4JInput::ConsumeMouseLook(float *pfPixelsX, float *pfPixelsY)
+{
+	// Parity with ReadAxis's menu gate: while a menu owns the pad, look input is
+	// discarded rather than banked, so it cannot burst out on the way back to play.
+	if (!g_pads[0].menuDisplayed)
+	{
+		if (pfPixelsX) *pfPixelsX = g_pads[0].mouseAccumX;
+		if (pfPixelsY) *pfPixelsY = g_pads[0].mouseAccumY;
+	}
+	else
+	{
+		if (pfPixelsX) *pfPixelsX = 0.0f;
+		if (pfPixelsY) *pfPixelsY = 0.0f;
+	}
+
+	g_pads[0].mouseAccumX = 0.0f;
+	g_pads[0].mouseAccumY = 0.0f;
+}
+
+// Has the mouse moved recently? For the AFK/idle check in Minecraft.cpp, which
+// otherwise only watches buttons and stick axes and so would flag a keyboard+mouse
+// player as idle while they are looking around.
+bool C_4JInput::MouseMovedRecently(void)
+{
+	if (g_pads[0].lastMouseMotionTime == 0.0) return false;
+	return (NowSeconds() - g_pads[0].lastMouseMotionTime) < MOUSE_RECENT_MOTION_SECS;
 }
 
 void C_4JInput::SetDeadzoneAndMovementRange(unsigned int uiDeadzone, unsigned int uiMovementRangeMax)
@@ -331,6 +433,7 @@ void C_4JInput::SetJoypadSensitivity(int iPad, float fSensitivity)
 unsigned int C_4JInput::GetValue(int iPad, unsigned char ucAction, bool bRepeat)
 {
 	if (iPad < 0 || iPad >= MAX_PADS) return 0;
+	if (GameplayActionBlocked(iPad, ucAction)) return 0;
 	unsigned int actionMask = g_joypadMap[g_pads[iPad].mapStyle][ucAction];
 	bool down = (g_pads[iPad].currentButtons & actionMask) != 0;
 	if (!down) return 0;
@@ -352,6 +455,7 @@ unsigned int C_4JInput::GetValue(int iPad, unsigned char ucAction, bool bRepeat)
 bool C_4JInput::ButtonPressed(int iPad, unsigned char ucAction)
 {
 	if (iPad < 0 || iPad >= MAX_PADS) return false;
+	if (GameplayActionBlocked(iPad, ucAction)) return false;
 	if (ucAction == 255)
 		return g_pads[iPad].currentButtons != 0 && g_pads[iPad].previousButtons == 0;
 	unsigned int actionMask = g_joypadMap[g_pads[iPad].mapStyle][ucAction];
@@ -361,6 +465,7 @@ bool C_4JInput::ButtonPressed(int iPad, unsigned char ucAction)
 bool C_4JInput::ButtonReleased(int iPad, unsigned char ucAction)
 {
 	if (iPad < 0 || iPad >= MAX_PADS) return false;
+	if (GameplayActionBlocked(iPad, ucAction)) return false;
 	unsigned int actionMask = g_joypadMap[g_pads[iPad].mapStyle][ucAction];
 	return (g_pads[iPad].currentButtons & actionMask) == 0 && (g_pads[iPad].previousButtons & actionMask) != 0;
 }
@@ -368,6 +473,7 @@ bool C_4JInput::ButtonReleased(int iPad, unsigned char ucAction)
 bool C_4JInput::ButtonDown(int iPad, unsigned char ucAction)
 {
 	if (iPad < 0 || iPad >= MAX_PADS) return false;
+	if (GameplayActionBlocked(iPad, ucAction)) return false;
 	if (ucAction == 255)
 		return g_pads[iPad].currentButtons != 0;
 	unsigned int actionMask = g_joypadMap[g_pads[iPad].mapStyle][ucAction];
@@ -426,22 +532,15 @@ static float ReadAxis(int iPad, unsigned int axisSlot, bool bCheckMenuDisplay)
 	// LSTICK_*/RSTICK_* bits ReadPhysicalButtons sets from WASD are never
 	// otherwise consumed as movement, so without this, keyboard movement
 	// silently does nothing even though the buttons register correctly.
-	// Synthesize a full-deflection analog value from those same digital
-	// bits for LX/LY; RX/RY (camera look) instead use the mouse-look delta
-	// Tick() captured, since keyboard has no natural look-axis equivalent.
+	// Synthesize a full-deflection analog value from those same digital bits
+	// for LX/LY. RX/RY (camera look) are deliberately left at zero here: the
+	// mouse does not go through the stick axes at all. Deflection means a turn
+	// RATE, which caps how fast you can spin however fast you move the mouse;
+	// mouse look is a displacement and is applied straight to the camera, per
+	// rendered frame, via ConsumeMouseLook() (see GameRenderer::render).
 	if (!pad.controller)
 	{
 		unsigned int physical = pad.axisMap[axisSlot];
-
-		// Mouse look. This MUST be a pure read with no side effects: RX/RY are
-		// sampled by more than one caller. Minecraft.cpp:1735's idle check reads
-		// them every frame, and it is a short-circuiting || chain starting with
-		// LY - so consuming the value here made look input work only while a
-		// movement key happened to be held (LY != 0 short-circuited the chain
-		// before it could eat the mouse motion). Tick() keeps a smoothed velocity
-		// instead, which any number of readers can sample harmlessly.
-		if (iPad == 0 && physical == AXIS_MAP_RX) return MouseVelToStick(pad.mouseVelX);
-		if (iPad == 0 && physical == AXIS_MAP_RY) return MouseVelToStick(pad.mouseVelY);
 
 		if (iPad == 0 && physical == AXIS_MAP_LX)
 		{

@@ -98,9 +98,11 @@ Keyboard+mouse bindings live in one place: `ReadPhysicalButtons()` in
 | Input | Action |
 |---|---|
 | WASD / arrows | Move (left-stick bits **only** - see `KNOWN_BUGS.md` on the D-pad) |
-| Mouse | Look |
+| Mouse | Look (raw 1:1, **not** a stick axis - see `KNOWN_BUGS.md`; speed knob is `MOUSE_DEG_PER_PIXEL` in `GameRenderer::render`, scaled by the in-game sensitivity slider) |
 | **Left mouse** | Break (`MINECRAFT_ACTION_ACTION` → `RT`) |
 | **Right mouse** | Place / use (`MINECRAFT_ACTION_USE` → `LT`) |
+| **Mouse wheel** | Cycle hotbar slot (does **not** go through the action map - see below) |
+| **1-9** | Select hotbar slot directly (also not an action - there is no absolute-slot action) |
 | LCTRL | Break (keyboard alternate) |
 | SPACE / RETURN | Jump; double-tap toggles creative flight; ascend while flying |
 | **SHIFT** | Sneak; hold to descend while flying |

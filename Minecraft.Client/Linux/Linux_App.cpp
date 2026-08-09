@@ -2,6 +2,11 @@
 
 #include <cstdio>
 
+// Defined in LinuxExtras/LinuxInput.cpp. Declared rather than included: this file
+// deliberately depends on nothing but SDL2, and 4J_Input.h needs the whole
+// LinuxTypes.h/LinuxStubs.h Win32-shim chain behind it.
+void LinuxInput_NotifyMouseWheel(int iNotches);
+
 CLinuxApp::CLinuxApp()
 	: m_window(nullptr)
 	, m_glContext(nullptr)
@@ -61,6 +66,19 @@ bool CLinuxApp::Init(int width, int height, const char *title)
 
 	SDL_GL_SetSwapInterval(1);
 
+	// Requesting an attribute is not getting it. A 0-bit stencil buffer does not fail
+	// context creation - GL_STENCIL_TEST simply passes unconditionally, so every Flash
+	// mask silently clips nothing and the only evidence is artwork drawn where it
+	// should have been cut off. Say so out loud rather than leaving it to be inferred.
+	{
+		int stencilBits = 0, depthBits = 0;
+		SDL_GL_GetAttribute(SDL_GL_STENCIL_SIZE, &stencilBits);
+		SDL_GL_GetAttribute(SDL_GL_DEPTH_SIZE, &depthBits);
+		fprintf(stderr, "GL context: depth=%d bits, stencil=%d bits\n", depthBits, stencilBits);
+		if (stencilBits < 8)
+			fprintf(stderr, "  WARNING: fewer than 8 stencil bits - Iggy/GDraw masks will not clip.\n");
+	}
+
 	m_width = width;
 	m_height = height;
 
@@ -114,6 +132,18 @@ bool CLinuxApp::PollEvents()
 			// relative-mouse capture makes the close button awkward to reach.
 			if (event.key.keysym.sym == SDLK_ESCAPE && (event.key.keysym.mod & KMOD_SHIFT))
 				return false;
+			break;
+
+		case SDL_MOUSEWHEEL:
+			// Hand the wheel to LinuxInput. It has to be pushed rather than polled:
+			// SDL reports the wheel only as an event, and this loop has already taken
+			// it off the queue by the time C_4JInput::Tick() runs, so there is no
+			// state left for LinuxInput to sample.
+			//
+			// SDL_MOUSEWHEEL_FLIPPED means the platform already inverted y (natural
+			// scrolling), so undo it and always report "positive = away from the user".
+			LinuxInput_NotifyMouseWheel(event.wheel.direction == SDL_MOUSEWHEEL_FLIPPED
+			                            ? -event.wheel.y : event.wheel.y);
 			break;
 
 		default:

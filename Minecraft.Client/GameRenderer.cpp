@@ -11,6 +11,11 @@
 #include "WaterDropParticle.h"
 #include "GameMode.h"
 #include "CreativeMode.h"
+#ifdef _LINUX64
+// For isInputAllowed() in the raw mouse-look block in render() - Minecraft.h only
+// forward-declares MultiPlayerGameMode.
+#include "MultiPlayerGameMode.h"
+#endif
 #include "Lighting.h"
 #include "Options.h"
 #include "MultiPlayerLocalPlayer.h"
@@ -1046,6 +1051,74 @@ void GameRenderer::render(float a, bool bFirst)
 	}
 #endif
 
+#ifdef _LINUX64
+	// Raw mouse look. This fills the slot the #if 0 block above used to occupy on
+	// PC, and for the same reason: a mouse is a displacement device, so the camera
+	// must rotate by an amount proportional to the pixels moved, however fast they
+	// arrive.
+	//
+	// Deliberately NOT done through Input::tick's stick path. That reads a stick
+	// deflection at 20Hz and feeds `tx * |tx| * 50` to interpolateTurn - a turn
+	// RATE, quadratic in deflection and hard-capped by the +/-1 axis clamp at
+	// 150 deg/sec, which is exactly what made the mouse feel like an analog stick.
+	//
+	// turn(), not interpolateTurn(): turn() also advances xRotO/yRotO, so the
+	// renderer's inter-tick lerp (see the glRotatef calls above) does not smear
+	// this frame's motion across the following 50ms. The camera lands where the
+	// mouse put it, in the frame it was moved.
+	{
+		// Degrees of rotation per pixel of mouse motion at 100% sensitivity - i.e.
+		// ~3000 pixels for a full 360. Honest units, and the one number to change
+		// if look speed needs adjusting; the in-game sensitivity slider scales it
+		// linearly from 0% to 200%.
+		const float MOUSE_DEG_PER_PIXEL = 0.12f;
+
+		int iPad = mc->player != NULL ? mc->player->GetXboxPad() : -1;
+
+		// render() is called once per local player per frame by the splitscreen
+		// loop in Minecraft::run_middle, so the drain has to belong to exactly one
+		// of them. The mouse is pad 0's.
+		if (iPad == 0)
+		{
+			// Always drain, even when the motion is about to be thrown away, so
+			// that looking around while input is blocked cannot bank up and then
+			// burst out the moment control comes back.
+			float pixelsX = 0.0f, pixelsY = 0.0f;
+			InputManager.ConsumeMouseLook(&pixelsX, &pixelsY);
+
+			MultiPlayerGameMode *pGameMode = mc->localgameModes[iPad];
+			if (pGameMode == NULL ||
+			    !(pGameMode->isInputAllowed(MINECRAFT_ACTION_LOOK_LEFT) ||
+			      pGameMode->isInputAllowed(MINECRAFT_ACTION_LOOK_RIGHT)))
+				pixelsX = 0.0f;
+			if (pGameMode == NULL ||
+			    !(pGameMode->isInputAllowed(MINECRAFT_ACTION_LOOK_UP) ||
+			      pGameMode->isInputAllowed(MINECRAFT_ACTION_LOOK_DOWN)))
+				pixelsY = 0.0f;
+
+#ifndef _CONTENT_PACKAGE
+			if (app.GetFreezePlayers()) pixelsX = pixelsY = 0.0f;
+#endif
+
+			// 4J: WESTY : Invert look Y if required. (Same setting Input.cpp uses.)
+			if (app.GetGameSettings(iPad, eGameSetting_ControlInvertLook))
+				pixelsY = -pixelsY;
+
+			if (pixelsX != 0.0f || pixelsY != 0.0f)
+			{
+				// Sensitivity is linear in the slider here (0-200%, default 100).
+				// It was quadratic on the stick path only because of the `tx*|tx|`
+				// curve, which a mouse has no use for.
+				float fSens = (float)app.GetGameSettings(iPad, eGameSetting_Sensitivity_InGame) / 100.0f;
+				// turn() re-applies a 0.15 scale internally, so divide it back out
+				// and MOUSE_DEG_PER_PIXEL stays true degrees per pixel.
+				float fScale = (MOUSE_DEG_PER_PIXEL * fSens) / 0.15f;
+				mc->player->turn(pixelsX * fScale, pixelsY * fScale);
+			}
+		}
+	}
+#endif
+
 	if (mc->noRender) return;
 	GameRenderer::anaglyph3d = mc->options->anaglyph3d;
 
@@ -1218,6 +1291,22 @@ int GameRenderer::runUpdate(LPVOID lpParam)
 		IntCache::Reset();	
 		m_updateEvents->Set(eUpdateEventIsFinished);
 	}
+
+	// Leave "not currently updating" signalled on the way out, whichever exit was
+	// taken. m_updateEvents is an auto-clear EventArray, so the WaitForAll at the top
+	// of the loop consumes eUpdateEventIsFinished; the shutdown `break` above then
+	// returns without ever setting it again. DisableUpdateThread() waits on exactly
+	// that event with INFINITE, so any caller reaching it after this thread has
+	// retired would block forever on a thread that no longer exists - the process
+	// hangs during teardown with no error and nothing running.
+	//
+	// PS3 was the only platform that noticed, and it papered over one call site
+	// (MinecraftServer::stopServer's #ifdef __PS3__ guard) rather than fixing the
+	// protocol - because PS3 was the only platform with a working ShutdownManager, so
+	// nowhere else could this exit path be reached. Linux has a real one now, and
+	// there are six unguarded DisableUpdateThread() callers, so fix it here where it
+	// belongs.
+	m_updateEvents->Set(eUpdateEventIsFinished);
 
 	ShutdownManager::HasFinished(ShutdownManager::eRenderChunkUpdateThread);
 	return 0;

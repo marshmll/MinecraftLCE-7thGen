@@ -48,8 +48,14 @@ satisfied by reusing Windows64's copy verbatim:
   gap unrelated to Linux; the Linux copy adds those methods matching
   Orbis/Durango's signatures.
 
-`4J_Input.h` needed **no** adaptation — its surface has no D3D/Win32-only types, so
-Windows64's copy is reused unchanged.
+- **`4J_Input.h`**: its surface has no D3D/Win32-only types, so Windows64's copy was
+  reused unchanged for most of the port. It is forked now because three desktop inputs
+  have no console equivalent to express them through: raw mouse look (`ConsumeMouseLook`),
+  the mouse wheel and the number row (`ConsumeMouseWheel`/`ConsumeHotbarSlotRequest`).
+  A stick axis means a turn *rate* and there is no absolute-hotbar-slot action at all —
+  see `KNOWN_BUGS.md`.
+
+`4J_Profile.h` is the only one still reused from Windows64 verbatim.
 
 ## `C4JRender`'s contract, as reverse-engineered from its callers
 

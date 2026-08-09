@@ -193,15 +193,16 @@ void MemSect(int sect);
 #elif defined _LINUX64
 // No vendor middleware exists for Linux - these headers just declare the
 // interface (C4JRender/C_4JInput/C4JStorage) that Minecraft.Client/Linux
-// implements against real OpenGL/SDL2/POSIX. 4J_Profile.h/4J_Input.h are
-// reused as-is from Windows64 (platform-agnostic C++, D3D11 types are opaque
-// typedefs here - see LinuxStubs.h). 4J_Render.h and 4J_Storage.h are Linux-
-// adapted copies (4J_Render.h's Initialise() takes a window handle instead of
-// a D3D11 device/swapchain, since presentation is SDL_GL_SwapWindow here).
+// implements against real OpenGL/SDL2/POSIX. 4J_Profile.h is reused as-is from
+// Windows64 (platform-agnostic C++, D3D11 types are opaque typedefs here - see
+// LinuxStubs.h). 4J_Render.h, 4J_Storage.h and 4J_Input.h are Linux-adapted
+// copies (4J_Render.h's Initialise() takes a window handle instead of a D3D11
+// device/swapchain, since presentation is SDL_GL_SwapWindow here; 4J_Input.h
+// adds the raw mouse-look drain, which has no stick-axis equivalent).
 #include "../Minecraft.Client/Windows64/4JLibs/inc/4J_Profile.h"
 #include "../Minecraft.Client/Linux/4JLibs/inc/4J_Render.h"
 #include "../Minecraft.Client/Linux/4JLibs/inc/4J_Storage.h"
-#include "../Minecraft.Client/Windows64/4JLibs/inc/4J_Input.h"
+#include "../Minecraft.Client/Linux/4JLibs/inc/4J_Input.h"
 #else
 #include "../Minecraft.Client/Orbis/4JLibs/inc/4J_Profile.h"
 #include "../Minecraft.Client/Orbis/4JLibs/inc/4J_Render.h"

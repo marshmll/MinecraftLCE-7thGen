@@ -1,8 +1,6 @@
 #pragma once
 using namespace std;
 
-#pragma message("LevelGenerationOptions.h ")
-
 #include "GameRuleDefinition.h"
 #include "../../../Minecraft.World/StructureFeature.h"
 

@@ -104,10 +104,24 @@ All in `LinuxRender.cpp` unless noted:
     A = spawn creeper, D = change skin) because the keyboard raised `DPAD_*` bits alongside
     the stick bits. This was the real cause of the long-standing "flying is on" and
     "W and D feel swapped" reports (`LinuxInput.cpp`).
-18. Mouse look redesigned: non-destructive velocity sampling with `sqrt` pre-compensation
-    for `Input.cpp`'s quadratic response; `LY`/`RY` corrected to forward/up-positive (W/S
-    were inverted). Mouse break/place bindings were swapped (left now breaks).
+18. Mouse look redesigned twice. First: non-destructive velocity sampling with `sqrt`
+    pre-compensation for `Input.cpp`'s quadratic response; `LY`/`RY` corrected to
+    forward/up-positive (W/S were inverted); mouse break/place bindings swapped (left now
+    breaks). Then, because faking a stick axis inherently feels like one, the mouse was
+    taken off the stick axes entirely: raw pixels are accumulated in `LinuxInput.cpp`,
+    drained once per rendered frame by `GameRenderer::render` and applied with
+    `Entity::turn()`. 1:1 pixels-to-degrees, uncapped (the stick path capped at 150 deg/s),
+    unsmoothed, no inter-tick lerp. Mouse and gamepad now also work simultaneously.
+    See `KNOWN_BUGS.md`, "Mouse look cannot go through the stick axes at all".
 19. SHIFT wired to sneak / descend-while-flying.
+20. Hotbar slot changing bound to the **mouse wheel** and **keys 1-9**. Neither could go
+    through the action map (the wheel is event-only and had no keyboard/mouse binding at
+    all; there is no absolute-slot action), so both bank-and-drain inside `Minecraft::tick`.
+21. **An open menu no longer leaks gameplay input.** Only the stick/trigger axes were
+    gated by `menuDisplayed`; the four button accessors were not, so on Linux the menu's
+    own SPACE/RETURN select key also fired `MINECRAFT_ACTION_JUMP`. Now gated by action
+    range (`> ACTION_MAX_MENU`), keeping menu navigation and the 255 wildcard live.
+    See `KNOWN_BUGS.md`.
 
 ## What's still open — pick up here
 

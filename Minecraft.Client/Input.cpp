@@ -99,7 +99,9 @@ void Input::tick(LocalPlayer *player)
         }
         tx = ty = 0.0f;
     }
-	player->interpolateTurn(tx * abs(tx) * turnSpeed, ty * abs(ty) * turnSpeed);
+	// 4J - fabsf, not abs: unqualified abs() can resolve to <cstdlib>'s int abs(int),
+	// which truncates every |tx| < 1 to zero and kills stick look outright.
+	player->interpolateTurn(tx * fabsf(tx) * turnSpeed, ty * fabsf(ty) * turnSpeed);
         
     //jumping = controller.isButtonPressed(0);
 

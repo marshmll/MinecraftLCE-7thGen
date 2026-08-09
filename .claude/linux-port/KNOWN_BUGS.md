@@ -83,26 +83,117 @@ were misattributed to axis conventions for most of the port: the long-standing s
 flight while D changed skin. Movement keys now raise stick bits only; menu navigation still
 works because `ACTION_MENU_UP` and friends are mapped to `(DPAD_x | LSTICK_x)`.
 
-## Mouse look: the interface wants a stick position, not a mouse delta
+## Mouse look cannot go through the stick axes at all
 
-Three separate mistakes here, worth knowing before touching `LinuxInput.cpp`:
+The port originally routed the mouse through `GetJoypadStick_RX/RY` - the obvious move, since
+that is the only look input the shared code knows about. It works, but it always feels like a
+controller, and no amount of tuning fixes that, because a stick axis means something a mouse
+does not: **a stick position is a turn RATE, a mouse motion is a displacement.**
+
+The consequences, all of which were present and all of which were reported as "feels like an
+analog stick":
+
+- **A hard speed cap.** Deflection clamps to ±1, and `Input.cpp:102` turns that into
+  `tx * |tx| * 50` per tick, which `Entity::interpolateTurn` scales by `0.15`. At the default
+  100% sensitivity that is **150 deg/sec, full stop** - 2.4 seconds for a 360. Moving the mouse
+  faster past ~1250 px/s did literally nothing.
+- **Ramp-up and glide**, from the exponential velocity smoothing needed to give a 20Hz reader
+  a stable sample.
+- **Rotation not proportional to distance moved.** A velocity sampled at 20Hz integrates to
+  something that depends on frame timing, so slow and fast sweeps of the same length gave
+  different angles, and short flicks were under-sampled.
+- **A further ~50ms of latency**, because `interpolateTurn` deliberately leaves `xRotO/yRotO`
+  alone so the renderer lerps each tick's rotation across the following frames.
+
+The old code also had to work around two traps that are worth keeping in mind if any of this is
+revisited:
 
 1. **`ReadAxis()` must have no side effects.** An accumulate-and-drain-on-read design broke
-   because `Minecraft.cpp:1735` also samples RX/RY every frame for an idle check - and it is a
+   because `Minecraft.cpp` also samples RX/RY every frame for an idle check - and it is a
    short-circuiting `||` chain starting with LY, so look input worked *only while a movement
    key was held* (LY != 0 short-circuited before the idle check could consume the motion).
-   `Tick()` now keeps a smoothed **velocity** that any number of readers can sample harmlessly.
-2. **Velocity, not per-frame delta.** `Tick()` runs per frame (~100Hz) while `Input::tick`
-   reads at the 20Hz game tick, so overwriting each frame discarded ~4/5 of all mouse motion.
-3. **Pre-compensate for the quadratic response.** `Input.cpp:102` applies
-   `tx * abs(tx) * turnSpeed`, so passing velocity straight through felt dead when slow and
-   uncontrollable when fast. `ReadAxis` returns `sqrt(velocity * GAIN)`; the square cancels and
-   turn rate becomes linear in mouse speed. `degrees/sec = 1000 * velocity * MOUSE_LOOK_GAIN`,
-   so `MOUSE_LOOK_GAIN * 1000` is degrees-per-pixel - the one number to tune.
+2. **A per-frame delta is meaningless to a 20Hz reader.** `Tick()` runs per rendered frame, so
+   overwriting the value each frame discarded ~4/5 of all mouse motion.
+
+### What it does now
+
+The mouse is off the stick axes entirely; `ReadAxis(AXIS_MAP_RX/RY)` reports a real controller
+and nothing else, so mouse and gamepad now both work at once (previously, plugging in any
+`SDL_GameController` silently killed mouse look, since the mouse lived in the `!pad.controller`
+branch).
+
+- `LinuxInput.cpp`'s `Tick()` **accumulates raw pixels** (`mouseAccumX/Y`), never smoothed.
+  Accumulating rather than overwriting also makes the extra `Tick()` the catch-up loop performs
+  harmless instead of lossy.
+- `C_4JInput::ConsumeMouseLook()` drains that accumulator. Drain-on-read is safe *here* because
+  it has exactly one caller, which is the whole difference from trap 1 above - it is a
+  purpose-built entry point on the Linux fork of `4J_Input.h`, not a shared axis getter.
+- `GameRenderer::render()` calls it **once per rendered frame** and applies the result with
+  `Entity::turn()` - not `interpolateTurn()`. `turn()` advances `xRotO/yRotO` too, so the
+  renderer's inter-tick lerp does not smear the motion. This fills the slot the original Java
+  PC mouse path occupied in the same function (still there, under `#if 0`).
+- Result: `degrees = pixels * MOUSE_DEG_PER_PIXEL * (sensitivity/100)`, exactly, with no cap
+  and no curve. `MOUSE_DEG_PER_PIXEL` (currently `0.12`) is the one number to tune, and its
+  units are honest degrees-per-pixel.
+- `C_4JInput::MouseMovedRecently()` exists solely so the AFK/idle check still sees a
+  keyboard+mouse player who is only looking around.
+
+Note the old tuning comment claimed `MOUSE_LOOK_GAIN * 1000` was degrees-per-pixel; it omitted
+`interpolateTurn`'s `* 0.15f`, so the real figure was 6.67x smaller than documented. Moot now,
+but a reminder to derive these end-to-end rather than from one call site.
 
 Also: `GetJoypadStick_LY`/`RY` are **forward/up-positive**. `Input.cpp:39` assigns
 `ya = LY` unmodified and treats positive as forward, so returning SDL's or XINPUT's raw
 up-is-negative convention makes W walk backwards.
+
+## An open menu did not block gameplay input, because only the *axes* were gated
+
+`SetMenuDisplayed` was honoured — `ReadAxis`/`ReadTrigger` return 0 for every stick and
+trigger while it is set, so movement and camera look were correctly frozen under a menu.
+The four *button* accessors (`GetValue`, `ButtonPressed`, `ButtonReleased`, `ButtonDown`)
+were not gated at all, so every button action still fired.
+
+On Linux that is worse than it sounds, because the menu's own select key is
+SPACE/RETURN → `_360_JOY_BUTTON_A`, and `A` is also `MINECRAFT_ACTION_JUMP`
+(`Linux_Minecraft.cpp`). **Confirming a menu item jumped the player underneath it.**
+
+The fix is not a blanket block: menus are driven through those same four accessors, so
+blanking them makes the frontend unusable. Menu and gameplay actions share one enum but
+not one range — `ACTION_MENU_A .. ACTION_MAX_MENU`, then every `MINECRAFT_ACTION_*` above
+it (`Common/App_enums.h`) — so `GameplayActionBlocked()` gates on
+`ucAction > ACTION_MAX_MENU` only. Two things that are easy to get wrong here:
+
+- **`ucAction == 255` must stay live.** It is the interface's "any button at all"
+  wildcard, and Press-Start-To-Play uses it while itself being a menu. Blocking it
+  strands the boot flow.
+- The Linux-only hotbar drains (`ConsumeMouseWheel`/`ConsumeHotbarSlotRequest`) discard
+  rather than bank while a menu is up, for the same reason `ConsumeMouseLook` does —
+  scrolling a menu list must not unwind into a burst of slot changes on the way back.
+
+Confirmed by measurement, not inference: a temporary print in `SetMenuDisplayed` showed
+it firing correctly for all four pads during the frontend boot, which is what ruled out
+"the flag never gets set" and pointed at the accessors instead.
+
+## Hotbar selection has no action to bind to
+
+Two desktop bindings that both had to bypass the action/button-bitmask layer, for
+different reasons — worth knowing before trying to add them "properly":
+
+- **Mouse wheel.** `MINECRAFT_ACTION_LEFT_SCROLL`/`RIGHT_SCROLL` exist and are bound to
+  LB/RB, but nothing on the keyboard or mouse raised those bits, so hotbar cycling was
+  simply unreachable without a gamepad. The wheel cannot be polled — SDL reports it only
+  as an event, and `CLinuxApp::PollEvents` has already taken it off the queue before
+  `C_4JInput::Tick()` runs. Hence `LinuxInput_NotifyMouseWheel()`, a push from the event
+  pump, and the only place `Linux_App.cpp` knows anything about input.
+- **Keys 1-9.** There is *no* absolute-slot action anywhere in `MINECRAFT_ACTION_*`, and
+  `Inventory::swapPaint` is relative and clamps to one step. The existing shape to copy is
+  the PSVita touch quickselect in `Minecraft::tick`, which writes `inventory->selected`
+  directly and sets the local `selected` flag so the item-name popup still runs.
+  Replication is free: `MultiPlayerGameMode::ensureHasSentCarriedItem` polls that field.
+
+Both drain **inside `Minecraft::tick`**, not per frame: `tick()` runs zero times in most
+frames above 20fps, so anything latched for a single frame is routinely lost. That is why
+both are banked-until-drained rather than sampled.
 
 ## Systemic bug class: closed-middleware seams that "obviously" collapse together
 
