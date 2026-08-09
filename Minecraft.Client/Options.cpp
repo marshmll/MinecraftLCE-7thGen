@@ -112,7 +112,16 @@ void Options::init()
     sound = 1;
     sensitivity = 0.5f;
     invertYMouse = false;
+#ifdef _LINUX64
+	// "normal" (128 blocks) rather than "far" (256). The scale is
+	// renderDistance = 16*16 >> viewDistance, and it drives the far plane and the fog
+	// together, so lowering it keeps the horizon looking right. Far is playable but
+	// draws roughly four times the terrain area, which is a lot of per-chunk command
+	// list replay for the gain. Still user-adjustable from the video settings.
+	viewDistance = 1;
+#else
     viewDistance = 0;
+#endif
     bobView = true;
     anaglyph3d = false;
     advancedOpengl = false;

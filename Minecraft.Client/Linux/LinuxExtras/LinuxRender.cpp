@@ -1296,13 +1296,25 @@ void C4JRender::CBuffClear(int index)
 	it->second.cmds.clear();
 }
 
+// Saturate rather than wrap. The interface returns int, but these are size_t byte
+// counts, and LevelRenderer::updateDirtyChunks assigns the result to an *unsigned*
+// int before comparing it against MAX_COMMANDBUFFER_ALLOCATIONS. Past 2 GB a plain
+// cast goes negative and reappears as a huge unsigned value, which latches the
+// renderer into onlyRebuild mode permanently - i.e. it would look exactly like the
+// 55 MB budget bug coming back. Clamping keeps the signature (and 4J_Render.h)
+// unchanged while making that unreachable.
+static int cbuff_clamp(size_t bytes)
+{
+	return bytes > (size_t)INT_MAX ? INT_MAX : (int)bytes;
+}
+
 int C4JRender::CBuffSize(int index)
 {
 	std::lock_guard<std::mutex> lock(g_cbuffMutex);
 	if (index < 0)
-		return (int)g_cbuffTotalBytes;
+		return cbuff_clamp(g_cbuffTotalBytes);
 	auto it = g_cbuffs.find(index);
-	return it == g_cbuffs.end() ? 0 : (int)it->second.bytes;
+	return it == g_cbuffs.end() ? 0 : cbuff_clamp(it->second.bytes);
 }
 
 void C4JRender::CBuffEnd()

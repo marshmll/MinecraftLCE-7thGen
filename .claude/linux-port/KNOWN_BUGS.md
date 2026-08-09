@@ -177,6 +177,113 @@ down: `LevelRenderer.cpp:2205-2211` has a PSVita-only `+0.01f` Y hack with the c
 *"No amount of polygon offset will push this close enough to be seen above the second
 tile layer when looking straight down"*. That is a genuinely different, known-hard case.
 
+## Systemic bug class: a resource budget sized for the smallest console
+
+A third flavour, alongside "platform chain with no `_LINUX64` arm" and "inherited a
+D3D convention". Here the `#else` is a *number*, and it is the smallest one in the
+chain - so Linux, which has far more memory than any console in the list, silently
+gets the most constrained configuration. The failure mode is the nastiest of the
+three: no error, no crash, no log line. A feature simply switches itself off once the
+budget is reached, and it never switches back on.
+
+**Distant chunks never loading was this.** `MAX_COMMANDBUFFER_ALLOCATIONS`
+(`LevelRenderer.h:46-54`) had no `_LINUX64` arm, so Linux inherited the 55 MB `#else`
+- below PS3's 110 MB - while running the full `_LARGE_WORLDS` world (320-chunk
+`LEVEL_MAX_WIDTH`, a 36x36 render-chunk grid). `LevelRenderer::updateDirtyChunks`
+computes
+
+```cpp
+unsigned int memAlloc = RenderManager.CBuffSize(-1);              // :1807
+bool onlyRebuild = ( memAlloc >= MAX_COMMANDBUFFER_ALLOCATIONS ); // :1817
+```
+
+and once `onlyRebuild` latches, any chunk that has never been compiled is skipped
+unless it is within 20 blocks (`:1941-1944`). That is not just a rendering gate:
+`level[p]->getChunkAt(...)` sits **inside** it (`:1975`), and `ServerLevel.cpp:438`
+says why - *"don't let this actually load/create any chunks, we'll let the normal
+updateDirtyChunks etc. processes do that"*. So distant chunks were never **generated**,
+which is why the symptom was empty void rather than fog or missing detail.
+
+**Two things made 55 MB even smaller than it looks on Linux.** The budget is host RAM,
+not a GPU command buffer - `CBuffSize(-1)` reports `g_cbuffTotalBytes`, the port's own
+recorded command payload. And terrain is expanded from `VERTEX_TYPE_COMPRESSED` before
+recording (`LinuxRender.cpp` `DrawVertices`), 16 bytes per vertex becoming 32, so the
+same world costs twice what the console budgets were calibrated against. 55 MB behaved
+like ~27 MB console-side.
+
+Measured, standing still at spawn - this is the shape to look for:
+
+```
+[cbuff] 0 MB / 55 MB   onlyRebuild=0
+[cbuff] 25 MB / 55 MB  onlyRebuild=0
+[cbuff] 55 MB / 55 MB  onlyRebuild=1     <- latches within seconds, never clears
+```
+
+Fixed with a `_LINUX64` arm at 512 MB (worth ~256 MB console-side after the 2x
+expansion). It then peaks around 193 MB and settles to ~125 MB, so memory really is
+released; the old 55 MB was simply below the working set of a single spawn area.
+`CBuffSize` also now saturates at `INT_MAX` instead of wrapping - it returns `int` from
+a `size_t` and the caller assigns to `unsigned int`, so past 2 GB a negative cast would
+reappear as a huge unsigned value and latch `onlyRebuild` permanently, i.e. it would
+look exactly like this bug returning.
+
+### Consequence worth knowing: the fix costs framerate
+
+Unlatching generation means far more terrain is loaded and drawn - measured at ~2.84 M
+chunk command-list replays in 40 s, roughly 1,180 per frame, with the render thread
+spending 45% of wall time in `CBuffCall`. Linux therefore also drops the default render
+distance to "normal" (`Options.cpp`, `viewDistance = 1` -> 128-block far plane) and the
+chunk grid to 12 chunks (`LevelRenderer.h` `PLAYER_VIEW_DISTANCE`), so it stops building
+terrain that is never drawn. **The grid must stay comfortably larger than the far
+plane** - if the render distance ever goes back to "far" (256 blocks = 16 chunks),
+raise the grid with it or the horizon will show holes inside the fog.
+
+## Two parallelism theories that measurement killed
+
+Both looked convincing and both were wrong. Recorded because the *reasoning* was
+plausible enough to be worth inoculating against.
+
+- **"`veryNearCount > 0` collapses all four rebuilds onto one thread."** The code does
+  do that (`LevelRenderer.cpp:2059`), but `_CRITICAL_CHUNKS` is defined
+  (`LevelRenderer.h:32`), so `veryNearCount` counts only *critical* nearby chunks, not
+  merely near ones. Measured: **12 atomic batches out of 9,000** (0.1%), with 26,964 of
+  36,000 chunk rebuilds correctly dispatched to the worker threads.
+- **"The single `g_cbuffMutex` serialises the rebuild threads against the renderer."**
+  `CBuffCall` does hold the global mutex across an entire chunk replay. Measured:
+  **39 ms of lock wait across 2.84 M calls.** It holds the lock ~45% of wall time, which
+  throttles the workers' commits, but the render thread essentially never blocks.
+
+### And a measurement that was itself the bug
+
+The investigation first "found" all three rebuild threads at **0 CPU ticks**, which was
+wrong. `/proc/<pid>/task/<tid>/stat` was being parsed by splitting on whitespace - and
+thread names now contain spaces, so `(Rebuild Chunk T)` shifted every field by two and
+`utime`/`stime` were read from `majflt`/`cmajflt`. A `gdb` backtrace settled it in one
+step: two of the three threads were mid-`Tesselator::tex` at that instant. **Parse
+`stat` by taking everything after the last `)`.**
+
+Same session, same lesson twice more: a reported "performance got worse" turned out to
+be the debug `fprintf`s added to diagnose it, going to an unbuffered terminal from the
+render path. And a rebuild that "succeeded" had never run at all - an earlier `cd` had
+left the shell in `Minecraft.Client/`, so `cmake --build build` addressed a path that
+does not exist, and the output was filtered for lowercase `error`. **Check the binary
+is newer than the source before trusting a test.**
+
+## Threads are now named, and there are 37 of them
+
+`SetThreadName` (`Minecraft.World/ThreadName.cpp`) was a Windows-only SEH trick and did
+nothing on Linux, so every thread appeared as `Minecraft.Clien` in `top`/`btop`/`gdb`.
+It now calls `pthread_setname_np` for `_LINUX64`, using the names the engine already
+supplies - `Rebuild Chunk Thread 0`, `Chunk update`, `Server`, `Tile update`,
+`McRegion Save thread 0`, `Connection #0 r/w`. The 16-byte limit means truncation, and
+the `(4J) ` prefix `C4JThread` adds is dropped so it does not eat a third of the name.
+
+For reference, since "the game only uses a few threads" is easy to believe: a running
+client has **37** threads, 14 of them the game's own, the rest Mesa, SDL/PipeWire and
+Miles. Thread counts here are hardcoded literals identical on every platform, and there
+is no core-count query anywhere in the tree - **btop hides threads unless you press
+`t`.**
+
 ## Chunk rendering: the four bugs behind "terrain renders as streaks"
 
 Fixed together; recording them because each hid the next.

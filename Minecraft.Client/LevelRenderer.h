@@ -49,6 +49,25 @@ public:
 	static const int MAX_COMMANDBUFFER_ALLOCATIONS = 448 * 1024 * 1024;		// 4J - added - hard limit is 512 so giving a lot of headroom here for fragmentation (have seen 16MB lost to fragmentation in multiplayer crash dump before)
 #elif defined __PS3__
 	static const int MAX_COMMANDBUFFER_ALLOCATIONS = 110 * 1024 * 1024;		// 4J - added
+#elif defined _LINUX64
+	// Two things make this number mean something different here than on the consoles,
+	// and neither is visible from the call site in updateDirtyChunks().
+	//
+	// It is host RAM, not a GPU command buffer: on Linux CBuffSize(-1) reports the
+	// renderer's own recorded command payload (LinuxRender.cpp's g_cbuffTotalBytes),
+	// which is ordinary heap memory.
+	//
+	// And it is counted in *expanded* vertices. Terrain is submitted as
+	// VERTEX_TYPE_COMPRESSED and decoded before recording (LinuxRender.cpp
+	// DrawVertices), 16 bytes per vertex becoming 32, so the same world costs twice
+	// what the console budgets were calibrated against. 512 MB here is therefore worth
+	// about 256 MB in console terms - between PS3's 110 and Orbis's 448.
+	//
+	// The 55 MB #else below was the value Linux used to inherit, and it is a hard
+	// failure rather than a slow one: exceeding it latches updateDirtyChunks into
+	// onlyRebuild mode, which stops *generating* chunks (not just rendering them)
+	// beyond 20 blocks. It was reached within seconds of world load, standing still.
+	static const int MAX_COMMANDBUFFER_ALLOCATIONS = 512 * 1024 * 1024;
 #else
 	static const int MAX_COMMANDBUFFER_ALLOCATIONS = 55 * 1024 * 1024;		// 4J - added
 #endif
@@ -207,7 +226,16 @@ public:
 	static const int    DIMENSION_OFFSETS[3];
 	// This is the TOTAL area of columns of chunks to be allocated for render round the players. So for one player, it would be a region of
 	// sqrt(PLAYER_RENDER_AREA) x sqrt(PLAYER_RENDER_AREA)
-#ifdef _LARGE_WORLDS
+#if defined _LARGE_WORLDS && defined _LINUX64
+	// Sized to the render distance Linux actually uses. Options.cpp defaults
+	// viewDistance to "normal" here, so the far plane is 128 blocks = 8 chunks; 12
+	// leaves half again as much margin so no grid edge is ever visible inside the fog,
+	// while allocating (12/18)^2 = 44% of the chunk columns the console default does.
+	// Raise this if the render-distance default is ever put back to "far" - the grid
+	// must stay comfortably larger than the far plane or the horizon shows holes.
+	static const int	PLAYER_VIEW_DISTANCE = 12;
+	static const int	PLAYER_RENDER_AREA = (PLAYER_VIEW_DISTANCE * PLAYER_VIEW_DISTANCE * 4);
+#elif defined _LARGE_WORLDS
 	static const int	PLAYER_VIEW_DISTANCE = 18; // Straight line distance from centre to extent of visible world
 	static const int	PLAYER_RENDER_AREA = (PLAYER_VIEW_DISTANCE * PLAYER_VIEW_DISTANCE * 4);
 #else
