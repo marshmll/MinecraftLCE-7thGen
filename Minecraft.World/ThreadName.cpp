@@ -37,5 +37,25 @@ void SetThreadName( DWORD dwThreadID, LPCSTR szThreadName )
     {
     }
 #endif
+#ifdef _LINUX64
+	// Every caller passes -1/0 meaning "the calling thread", which is the only case
+	// pthread_setname_np can serve anyway. Without this every thread in the process
+	// shows up in top/btop/gdb as "Minecraft.Clien", which makes any question about
+	// which thread is doing the work unanswerable - the names the engine already
+	// supplies ("Rebuild Chunk Thread 0", "Server", "Chunk update", ...) are exactly
+	// what is needed. The limit is 16 bytes including the NUL, so it has to be
+	// truncated; the "(4J) " prefix C4JThread adds would eat a third of that, so drop
+	// it here.
+	if (szThreadName != NULL)
+	{
+		const char *shortName = szThreadName;
+		if (strncmp(shortName, "(4J) ", 5) == 0)
+			shortName += 5;
+
+		char truncated[16];
+		snprintf(truncated, sizeof(truncated), "%s", shortName);
+		pthread_setname_np(pthread_self(), truncated);
+	}
+#endif
 #endif // __PS3__
 }
