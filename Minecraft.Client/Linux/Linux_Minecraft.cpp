@@ -9,12 +9,13 @@
 // screens are Iggy-only and still out of scope (see LinuxUIController.h).
 //
 // Pass --smoke-test on the command line to run the old Phase 3-5
-// standalone triangle/input/storage/audio self-test instead (kept as a
+// standalone triangle/input/storage self-test instead (kept as a
 // regression check for those subsystems in isolation from real game logic).
+// Its audio leg is gone: it tested the OpenAL AIL_* shim, which the real Miles
+// runtime replaced. Miles has its own harness - Linux/Miles/miles_spike.
 
 #include "stdafx.h"
 #include "Linux_App.h"
-#include "LinuxExtras/LinuxAudioShim.h"
 
 #include "../PS3/PS3Extras/ShutdownManager.h"
 #include "../MinecraftServer.h"
@@ -108,9 +109,10 @@ namespace
 
 		RunStorageSmokeTest();
 
-		HDIGDRIVER audioDriver = AIL_open_digital_driver(44100, 16, 2, 0);
-		bool audioOk = LinuxAudioShim_PlayTestTone(audioDriver);
-		printf("Audio shim smoke test: test tone reached AL_PLAYING with no AL errors = %s\n", audioOk ? "yes" : "NO");
+		// Audio has its own, better harness now that the real Miles runtime is
+		// linked: Minecraft.Client/Linux/Miles/miles_spike loads the soundbank and
+		// plays a named event. The test tone that used to be here belonged to the
+		// OpenAL shim that Miles replaced.
 
 		TestVertex triangle[3] = {
 			{  0.0f,  0.6f, -3.0f,  0.5f, 1.0f, {255,  64,  64, 255}, {0, 0, 127, 0}, 0},
@@ -151,7 +153,6 @@ namespace
 			RenderManager.Present();
 		}
 
-		AIL_close_digital_driver(audioDriver);
 		return 0;
 	}
 

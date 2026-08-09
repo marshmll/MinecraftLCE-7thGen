@@ -57,4 +57,11 @@ target_link_libraries(Minecraft.World PUBLIC pthread)
 # restores the old lazy-checking behavior for that dead code rather than
 # guessing at intended semantics for a print() nothing calls.
 target_compile_options(Minecraft.World PRIVATE -Wno-template-body)
+# File.h's FileKeyHash/FileKeyEq are `typedef struct { ... operator()(...) ... }
+# Name;` - an anonymous struct with member functions, named only by the typedef.
+# GCC warns (-Wnon-c-typedef-for-linkage) that this is not a C-compatible type, once
+# per translation unit that includes File.h, which is nearly all of them. It is a
+# style complaint about a pre-existing declaration that works correctly and is not
+# worth churning a shared header for, so silence it rather than read past it.
+target_compile_options(Minecraft.World PRIVATE -Wno-non-c-typedef-for-linkage)
 

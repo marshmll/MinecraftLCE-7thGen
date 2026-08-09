@@ -22,9 +22,10 @@ reimplementing them from scratch against real APIs (OpenGL/SDL2/OpenAL/POSIX).
 
 **Status: that goal is met.** The client builds, boots straight into a generated world,
 renders correctly textured terrain, and is playable — movement, mouse look, jump,
-swimming, block breaking and placing, creative flight and the HUD all work, and it exits
-cleanly. What remains is rendering polish (no lightmap sampling, cloud/leaf/held-item
-artefacts) and the deliberately-deferred Iggy UI. See
+swimming, block breaking and placing, creative flight and the HUD all work, it has
+sound, and it exits cleanly. The real Iggy UI runs, and so does the real Miles Sound
+System. What remains is rendering polish (no lightmap sampling, cloud/leaf/held-item
+artefacts) and playtesting the audio. See
 `.memory/linux-port-plan-and-status.md` for the live list.
 
 **Read `.claude/linux-port/` before touching this port.** It has the deep detail this
@@ -37,6 +38,11 @@ file intentionally omits:
   x86-64). Real LCE menus now render standalone. Documents the four non-obvious,
   load-bearing details — chiefly 2461 relocations that must be rewritten or every
   global access is silently wrong — and what's left to wire it into the client.
+- `.claude/linux-port/MILES.md` — **read this before any audio work.** The client has
+  sound: the vendor Miles Sound System (RAD, same as Iggy) is revived the same way, so
+  the real `Minecraft.msscmp` soundbank and the Bink Audio music both work. Documents
+  the trap that `mss.h`'s own `IS_LINUX` branch is the *wrong* ABI for the PS4 library
+  we link, and two glibc/FreeBSD differences that abort the process.
 - `.claude/linux-port/BUILD_AND_RUN.md` — exact build/run commands and non-obvious
   requirements (**the binary must be run with `Minecraft.Client/` as the working
   directory** — relative asset paths assume it and there is no error message if you

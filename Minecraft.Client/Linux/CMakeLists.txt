@@ -28,15 +28,6 @@ if(NOT TARGET GLEW::GLEW)
     add_library(GLEW::GLEW ALIAS PkgConfig::GLEW)
 endif()
 
-# OpenAL-soft backs LinuxAudioShim.cpp's AIL_* (Miles Sound System)
-# signature-compatible shim - see that file for scope/fidelity notes.
-find_package(OpenAL QUIET)
-if(NOT TARGET OpenAL::OpenAL)
-    find_package(PkgConfig REQUIRED)
-    pkg_check_modules(OPENAL REQUIRED IMPORTED_TARGET openal)
-    add_library(OpenAL::OpenAL ALIAS PkgConfig::OPENAL)
-endif()
-
 # Phase 7 trunk: essentially all of Minecraft.Client except the Iggy-backed
 # modern UI. Undefined-symbol discovery (iterating add-file/rebuild, same
 # process Minecraft.World went through in Phase 2) showed the gameplay/
@@ -155,13 +146,20 @@ endforeach()
 # list below - they would now be duplicate definitions of the real entry points.
 add_subdirectory(Iggy)
 
+# Miles Sound System: the same manoeuvre on the other RAD middleware in this tree.
+# The client links the vendor PS4 core, so LinuxAudioShim.{h,cpp} - the OpenAL
+# reimplementation of the AIL_* API written in Phase 5, whose soundbank layer could
+# only ever be a stub - is deleted, for the same reason LinuxIggyShim.cpp was: it
+# would be a duplicate definition of every real entry point. OpenAL is no longer a
+# dependency of this port; Miles reaches the device through SDL2.
+add_subdirectory(Miles)
+
 add_executable(Minecraft.Client.Linux
     Linux_App.cpp
     Linux_Minecraft.cpp
     LinuxExtras/LinuxRender.cpp
     LinuxExtras/LinuxInput.cpp
     LinuxExtras/LinuxStorage.cpp
-    LinuxExtras/LinuxAudioShim.cpp
     LinuxExtras/LinuxUIController.cpp
     LinuxExtras/Linux_MinecraftApp.cpp
     LinuxExtras/LinuxShutdownManager.cpp
@@ -185,13 +183,22 @@ target_link_libraries(Minecraft.Client.Linux PRIVATE
     # it carries the vendor archive as a PUBLIC dependency and propagates the Iggy
     # header include paths (which stdafx.h needs for iggy.h and gdraw_wgl.h).
     mclinux_iggy
+    # Miles: carries the two patched vendor archives and the mss.h include path that
+    # Consoles_SoundEngine.h needs (through LinuxMiles.h).
+    mclinux_miles
     ${MCLINUX_SDL2_TARGET}
     OpenGL::GL
     GLEW::GLEW
-    OpenAL::OpenAL
 )
 
 # Same dead-code ListTag<T>::print()/Tag::print() ostream/wostream mismatch
 # already suppressed for Minecraft.World (see its CMakeLists.txt) - the
 # trunk's headers pull ListTag.h in too.
 target_compile_options(Minecraft.Client.Linux PRIVATE -Wno-template-body)
+# File.h's FileKeyHash/FileKeyEq are `typedef struct { ... operator()(...) ... }
+# Name;` - an anonymous struct with member functions, named only by the typedef.
+# GCC warns (-Wnon-c-typedef-for-linkage) that this is not a C-compatible type, once
+# per translation unit that includes File.h, which is nearly all of them. It is a
+# style complaint about a pre-existing declaration that works correctly and is not
+# worth churning a shared header for, so silence it rather than read past it.
+target_compile_options(Minecraft.Client.Linux PRIVATE -Wno-non-c-typedef-for-linkage)

@@ -18,11 +18,10 @@
 #include "../../Minecraft.Client/Windows64/Windows64_App.h"
 #include "../../Minecraft.Client/Windows64/Miles/include/imssapi.h"
 #elif defined _LINUX64
-// LinuxAudioShim.h is a signature-compatible AIL_*/mss.h shim backed by
-// OpenAL-soft (built in Phase 5) - see that header for scope/fidelity notes.
-// `app` comes in via stdafx.h's Linux_MinecraftApp.h, same as every other
-// platform gets it from its own *_App.h here.
-#include "../../Minecraft.Client/Linux/LinuxExtras/LinuxAudioShim.h"
+// The real Miles runtime, from the PS4 build of the vendor library - see
+// Minecraft.Client/Linux/Miles/. `app` comes in via stdafx.h's Linux_MinecraftApp.h,
+// same as every other platform gets it from its own *_App.h here.
+#include "../../Minecraft.Client/Linux/Miles/LinuxMiles.h"
 #endif
 
 #ifdef __ORBIS__
@@ -66,7 +65,10 @@ char SoundEngine::m_szSoundPath[]={"Durango\\Sound\\"};
 char SoundEngine::m_szMusicPath[]={"music\\"};
 char SoundEngine::m_szRedistName[]={"redist64"};
 #elif defined _LINUX64
-char SoundEngine::m_szSoundPath[]={"Sound/"};
+// Same bank Windows64 uses, and for the same reason: there is no Linux/ copy of the
+// soundbank in the tree, and "Sound/" (copied from Durango, whose package layout puts
+// it at the root) does not exist relative to the working directory the client runs in.
+char SoundEngine::m_szSoundPath[]={"Durango/Sound/"};
 char SoundEngine::m_szMusicPath[]={"music/"};
 char SoundEngine::m_szRedistName[]={"redist64"};
 #elif defined _DURANGO
@@ -220,7 +222,12 @@ void SoundEngine::init(Options *pOptions)
 #ifdef __ORBIS__
 	C4JThread::PushAffinityAllCores();
 #endif 
-#if defined _DURANGO || defined __ORBIS__ || defined __PS3__ || defined __PSVITA__
+#if defined _DURANGO || defined __ORBIS__ || defined __PS3__ || defined __PSVITA__ || defined _LINUX64
+	// Linux belongs with the console builds here, not with Windows64: it links the
+	// Miles runtime statically, so the Bink Audio decoder has to be registered
+	// explicitly rather than loaded from a redist directory as a .asi at runtime.
+	// Without this every .binka music file and every compressed sound in the bank
+	// decodes to nothing.
 	Register_RIB(BinkADec);
 #endif
 
@@ -257,7 +264,12 @@ void SoundEngine::init(Options *pOptions)
 
 	InitializeCriticalSection(&SoundEngine_MixerMutex);
 
-#elif defined(__ORBIS__)
+#elif defined(__ORBIS__) || defined(_LINUX64)
+	// Linux uses the Orbis settings because it uses the Orbis driver: the digital
+	// driver behind it is the vendor's RADSS_Orbis one, which rejects anything but
+	// 48 kHz stereo or 7.1 ("Orbis HW output only supports 48000, with 7.1 channel or
+	// stereo"). The generic branch below asks for 44100 + MSS_MC_USE_SYSTEM_CONFIG and
+	// fails outright.
 	m_hDriver = AIL_open_digital_driver( 48000, 16, 2, 0 );
 	app.DebugPrintf("---SoundEngine::init - AIL_open_digital_driver\n");
 

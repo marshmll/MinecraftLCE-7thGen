@@ -19,6 +19,7 @@ below.
 | 6 — Docs and cleanup | ✅ largely done | `.claude/linux-port/*`, `.memory/*`, `CLAUDE.md` written and kept current through Phase 7 |
 | 7 — Boot the real game (skip Iggy) | ✅ done | Renders correctly, playable, exits cleanly. Remaining items are polish — see "still open" |
 | 8 — Iggy on Linux | ✅ done | **Not a replacement — the real Iggy runs on Linux and is wired into the client.** Frontend boots, real HUD renders; see `.claude/linux-port/IGGY.md` |
+| 9 — Miles audio on Linux | ✅ done | Same manoeuvre on the other RAD middleware. Real soundbank, real Bink Audio music. `LinuxAudioShim` deleted; OpenAL no longer a dependency. See `.claude/linux-port/MILES.md` |
 
 Phase 7 was split into sub-steps as it grew far larger than expected:
 - **7a** (trunk gameplay files compiling) — ✅ done. The entire non-Iggy
@@ -287,3 +288,49 @@ bug.
 this, GDraw's `opengl_check()` was compiled out (`_DEBUG` is not defined for that target
 because its error path is `RR_BREAK()` = `int $3`), so **every GL error inside GDraw was
 silently discarded and a clean log proved nothing.**
+
+## Phase 9 — Miles Sound System on Linux (2026-08-08)
+
+The client had no sound: `LinuxAudioShim.cpp` was 443 lines of OpenAL reimplementing
+the `AIL_*` API, and its own header admitted the soundbank/event layer was a stub — so
+every SFX was silent, and music was too (all 398 files are Bink Audio, not PCM WAV).
+
+**The Iggy premise applied again, and audio was the easier case.** The middleware is
+Miles Sound System, from the same vendor, and `Orbis/Miles/lib/mssorbis.a` is the same
+class of artefact: ELF x86-64, FreeBSD OSABI, not stripped, 1374 `PLT32_BND` GOT loads
+that `patch_orbis_iggy.py`'s rewrite handles unchanged. No `setjmp` anywhere, and —
+unlike Iggy — **no object has to be dropped**: every Sony call site is behind a `sce*`
+symbol, so the vendor's own threading, timing, file IO and audio driver are all kept,
+which avoids recovering `rrThread` and the RADSS vtable by disassembly.
+
+**Done — the game has sound.** 157 events enumerate from `Minecraft.msscmp`, a named
+event plays at peak 17-23k/32767, and `music/music/creative5.binka` streams in-game.
+
+**Four things dominated, and three were silent failures:**
+
+1. **`mss.h`'s own `IS_LINUX` branch is the wrong ABI.** Miles was ported to Linux, so
+   the branch exists and looks right — but it differs from the PS4 library we link:
+   `MAX_SPEAKERS` 6 vs 8, an extra `S32 released` in `DIG_DRIVER`, four more in
+   `MDI_DRIVER`. `LinuxMiles.h` presents the PS4 identity instead; verified by
+   preprocessing `mss.h` three ways and diffing.
+2. **56 symbols collide with Iggy** — the entire `rr*` platform surface. Miles' copies
+   are prefixed `mss_` by the patch script, giving it a private layer.
+3. **`ETIMEDOUT` is 60 on FreeBSD and 110 on Linux**, and `rrSemaphoreDecrementOrWait`
+   runs `ud2` on an errno it does not recognise. A legitimate timeout killed the
+   process with SIGILL a second after the first sound. Same function also assumes a
+   FreeBSD-sized `sem_t` (16 bytes; glibc's is 32) allocated inline in the caller's
+   buffer — the `rrMutexCreate` hazard one struct over.
+4. **A missing `_LINUX64`, exactly as CLAUDE.md warns.** The driver-open chain grouped
+   every console but not Linux, so it asked for 44100 + `MSS_MC_USE_SYSTEM_CONFIG` and
+   the Orbis driver refused: *"Orbis HW output only supports 48000, with 7.1 channel or
+   stereo."* Also missing from the `Register_RIB(BinkADec)` guard, and `m_szSoundPath`
+   was `"Sound/"` — a Durango-relative path that does not exist here.
+
+Every `sce*` signature came from `objdump -dr` at the call site, and the documented
+Sony API would have been wrong: mutexes are passed by address and threads by value.
+
+**New tool:** `MCLINUX_MILES_AUDIO_DEBUG=1` prints the SDL backend and a once-a-second
+grain count plus peak amplitude, because silence and "not wired up" are
+indistinguishable by ear.
+
+Read `.claude/linux-port/MILES.md` before touching any of this.

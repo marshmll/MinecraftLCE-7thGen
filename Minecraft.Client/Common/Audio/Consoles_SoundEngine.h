@@ -17,7 +17,10 @@
 #elif defined _WINDOWS64
 #include "../../Windows64/Miles/include/mss.h"
 #elif defined _LINUX64
-#include "../../Linux/LinuxExtras/LinuxAudioShim.h"
+// Not Orbis/Miles/include/mss.h directly: Linux links the PS4 build of the Miles
+// runtime, so the header has to be compiled with the PS4 ABI or its structs will not
+// match the library's. LinuxMiles.h is that wrapper - see the comment in it.
+#include "../../Linux/Miles/LinuxMiles.h"
 #else // PS4
 // 4J Stu - Temp define to get Miles to link, can likely be removed when we get a new version of Miles
 #define _SEKRIT2
