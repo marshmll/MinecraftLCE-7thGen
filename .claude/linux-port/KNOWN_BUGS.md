@@ -129,6 +129,54 @@ draw calls" and that `VERTEX_TYPE_COMPRESSED` was "provably never true off Xbox 
 Both were false, and both claims survived precisely because they read as settled. Check
 the callers.
 
+## Systemic bug class: Linux inheriting a branch written for Direct3D
+
+Distinct from the "platform `#ifdef` chain with no `_LINUX64`" pattern above, and harder
+to spot, because Linux does not fall into a *missing* branch - it falls into a **wrong**
+one that reads as a sensible default. The guard looks complete; the `#else` just happens
+to assume a D3D convention.
+
+| Site | What the `#else` assumed | Effect on Linux |
+|---|---|---|
+| `glWrapper.cpp:280` `glPolygonOffset` | Depth bias is in D3D's 0..1 range, so divide by 65536 | `glPolygonOffset(-3,-3)` arrived as `-0.0000457`, far under one depth unit. **Polygon offset did nothing at all**, on every caller in the tree. |
+| `LinuxRender.cpp` `MatrixPerspective` | (see the seams table above) degrees vs radians | ~51° FOV, inverted projection underwater |
+
+**The block-breaking crack overlay z-fighting was this.**
+`LevelRenderer::renderDestroyAnimation` (`LevelRenderer.cpp:2183-2247`, *not* the
+identically-plausible `renderHit` at `:2164`, which is a dead stub - every caller passes
+`mode == 0`) draws the `destroy_0..9` atlas tiles over the block face and relies on
+`glPolygonOffset(-3,-3)` to lift them off it. With the offset divided away the decal was
+exactly coplanar.
+
+Why it *flickered* rather than being uniformly wrong is worth keeping: coplanar geometry
+under `GL_LEQUAL` would resolve consistently. It fought because the two draws reach the
+same surface by different arithmetic - terrain from a chunk display list of chunk-local
+compressed vertices plus a recorded `translateToPos()`, the overlay tesselated in
+camera-relative space via `t->offset(-xo,-yo,-zo)`. Different rounding, so the winner
+varied with position and angle. **"Intermittent, depends on the angle" is the signature
+of coplanar depth fighting, not of a state bug.**
+
+Fixed by grouping `_LINUX64` with `__PS3__` - the branch selects *depth-range
+convention*, not platform, and PS3's GCM is the other GL-convention backend. Confirmed
+by measurement, not inference: the value reaching `glPolygonOffset` went from
+`-0.0000457` to `-3`.
+
+Two related facts found while tracing this, both true on **every** platform:
+
+- `glEnable/glDisable(GL_POLYGON_OFFSET_FILL)` never reach `C4JRender`.
+  `GL_POLYGON_OFFSET_FILL` is `0` (`stubs.h:35`) and neither `glWrapper.cpp` switch has
+  a `case 0`. Polygon offset is driven *entirely* by the value setter, so `(0,0)` is the
+  only way to say "off". `LinuxRender`'s `StateSetDepthSlopeAndBias` now disables the
+  mode itself when both arguments are zero, instead of latching it on for the process.
+- The block **selection outline** is a separate function (`renderHitOutline`,
+  `:2249-2280`) and never used polygon offset - it grows the AABB by `0.002f`. It was
+  never affected, either before or after.
+
+Still open, if crack overlays on grass-topped blocks fight when viewed from straight
+down: `LevelRenderer.cpp:2205-2211` has a PSVita-only `+0.01f` Y hack with the comment
+*"No amount of polygon offset will push this close enough to be seen above the second
+tile layer when looking straight down"*. That is a genuinely different, known-hard case.
+
 ## Chunk rendering: the four bugs behind "terrain renders as streaks"
 
 Fixed together; recording them because each hid the next.

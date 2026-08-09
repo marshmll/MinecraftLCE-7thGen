@@ -96,6 +96,10 @@ void CConsoleMinecraftApp::TemporaryCreateGameStart()
 	app.SetGameHostOption(eGameHostOption_Gamertags,1);
 	app.SetGameHostOption(eGameHostOption_BedrockFog,1);
 
+	// Creative, so flight and instant block placement are available for testing.
+	// Note when testing the block-damage overlay (LevelRenderer::renderDestroyAnimation
+	// and its destroy_0..9 crack textures): creative breaks blocks instantly, so that
+	// path never runs. Switch this to GameType::SURVIVAL to exercise it.
 	app.SetGameHostOption(eGameHostOption_GameType,GameType::CREATIVE->getId() );
 	app.SetGameHostOption(eGameHostOption_LevelType, 0 );
 	app.SetGameHostOption(eGameHostOption_Structures, 1 );

@@ -277,7 +277,14 @@ void glTexParameteri(int target, int param, int value)
 
 void glPolygonOffset(float factor, float units)
 {
-#ifdef __PS3__
+#if defined(__PS3__) || defined(_LINUX64)
+	// This branch is not "PS3 and friends", it is "backends whose depth bias is already
+	// in OpenGL's units". PS3's GCM is one; Linux's C4JRender is a real OpenGL
+	// implementation and forwards straight to glPolygonOffset, so it is another.
+	// Scaling here would divide the offset away: LevelRenderer's block-breaking overlay
+	// asks for -3.0 (the value GL wants) and would arrive as -0.0000457, far below one
+	// depth unit, leaving the crack decal exactly coplanar with the block face and
+	// z-fighting it.
 	RenderManager.StateSetDepthSlopeAndBias(factor, units);
 #else
 	// DirectX specifies these offsets in z buffer 0 to 1 sort of range, whereas opengl seems to be in a 0 -> depth buffer size sort of range.

@@ -1870,6 +1870,17 @@ void C4JRender::StateSetAlphaTestEnable(bool enable)
 void C4JRender::StateSetDepthSlopeAndBias(float slope, float bias)
 {
 	if (Recording()) { RecF(RecordedCmd::OP_DEPTH_SLOPE_BIAS, slope, bias); return; }
+
+	// Zero means "no offset", and it is the only way callers can say so: the engine's
+	// glEnable/glDisable(GL_POLYGON_OFFSET_FILL) never reach C4JRender at all, because
+	// that constant is 0 (stubs.h) and glWrapper.cpp's switches have no case for it.
+	// So drive the enable from the values, rather than latching it on for the process.
+	if (slope == 0.0f && bias == 0.0f)
+	{
+		glDisable(GL_POLYGON_OFFSET_FILL);
+		glPolygonOffset(0.0f, 0.0f);
+		return;
+	}
 	glEnable(GL_POLYGON_OFFSET_FILL);
 	glPolygonOffset(slope, bias);
 }
