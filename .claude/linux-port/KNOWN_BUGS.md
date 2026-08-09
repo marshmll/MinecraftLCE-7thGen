@@ -395,6 +395,28 @@ process exit (`__tcf_ZN13LevelRenderer10permaChunkE` in the backtrace), and both
 intermittent — it depends what was in the uninitialised memory. Fixed with an explicit
 `Chunk::ownsBB` flag plus a default constructor that initialises its pointer members.
 
+**A fourth variant, found later by the warning sweep: `delete` through a `void *`.**
+Deleting a `void *` is undefined (there is no type to destroy), and GCC says so
+(`-Wdelete-incomplete`) — but the code compiles and MSVC accepts it. Four sites, all
+"free the opaque callback/thread parameter":
+
+- `Minecraft.Client/MinecraftServer.cpp:264` — `delete initData->saveData->data`. The
+  worst of the four: `data` is a `LPVOID` but every producer hands over a
+  `byteArray` (`arrayWithLength<byte>`) buffer, i.e. `new byte[]`. So this was a
+  `new[]`/scalar-`delete` mismatch *and* a void-pointer delete, on the
+  load-a-save / tutorial path. Fixed to `delete[] (byte *)…`.
+- `Common/Network/GameNetworkManager.cpp:879` — `delete lpParameter`, actually a
+  `NetworkGameInitData *`, so its destructor never ran.
+- `Common/UI/UIScene_InGameInfoMenu.cpp:554` and
+  `UIScene_InGamePlayerOptionsMenu.cpp:364` — `delete pParam`, allocated `new BYTE()`.
+
+Related, same sweep: `Minecraft.World/MeleeAttackGoal.cpp` did `delete path` with
+`class Path` only *forward-declared* in `MeleeAttackGoal.h` — so `~Path()` (which frees
+a whole `Node *` array) never ran on either of the two delete sites. Fixed by including
+`net.minecraft.world.level.pathfinder.h`, the same include the other Goals holding a
+`Path` already use. **`-Wdelete-incomplete` finds this class of bug for free; it is on by
+default and the build is now clean, so any new instance will surface immediately.**
+
 **Generalise from this:** the `new[]`/`delete` mismatch is one instance of a broader
 pattern — this codebase frequently makes shallow, aliasing copies of objects whose
 destructors free members unconditionally. When a crash lands in a destructor, ask who
@@ -473,6 +495,102 @@ _LINUX64` guards:
   guards to include `_LINUX64`.
 - `LeaderboardManager::m_instance` — genuinely had no out-of-line definition
   anywhere in the repo. Added `= NULL`.
+
+## The warning sweep: 1403 warnings hid 11 real bugs
+
+The build used to emit **1403 unique warning sites** and carried two `-Wno-` flags that
+hid 21 more. 98% of that was one category (`-Wwrite-strings`, 1370 sites — string
+literals passed to `char *`/`wchar_t *`), which meant the genuinely interesting
+diagnostics were unreadable in the noise. **It is now zero, with no `-Wno-`
+suppressions on either target — so a new warning here is signal, and worth stopping for.**
+
+Method worth reusing (a single incremental build will *not* show you this, because it
+only recompiles what changed): replay every entry of `build/compile_commands.json` with
+`-fsyntax-only`, strip any `-Wno-` flags, and dedupe by `realpath:line:col`. The dedupe
+matters — header warnings otherwise multiply by the number of TUs including them
+(`-Wnon-c-typedef-for-linkage` reported 220 times for 19 actual sites). Doing it with
+codegen (`-c -o /dev/null`) as well confirmed nothing was hiding in optimisation-only
+middle-end warnings; both passes gave the identical set.
+
+The 1370 `-Wwrite-strings` sites collapsed to just four declarations plus seven static
+name tables — no call site needed touching:
+
+- `Minecraft.World/CompoundTag.h`'s ~26 NBT accessors took `wchar_t *name` (≈671 sites)
+- the four `PIX*` instrumentation stubs took `char *`
+  (`x64headers/extraX64.h` + `Minecraft.Client/Extrax64Stubs.cpp`, ≈200 sites)
+- seven `static wchar_t */WCHAR */char *` tables (ColourTable, Textures, GameRuleManager,
+  SoundEngine, DLCManager, DLCAudioFile, UIScene_SkinSelectMenu — 481 sites)
+- `Tag::getTagName()` returned `wchar_t *` (13 sites)
+
+**The real bugs the noise was hiding** — all pre-existing, none Linux-specific:
+
+- **`Common/UI/UIController.cpp:1227-1230`: `LONG_MAX`/`LONG_MIN` are the limits of
+  `long`, not of `RECT`'s `LONG`.** They coincide only on Windows, where `LONG` *is* a
+  32-bit `long`. On any LP64 target — Linux, and Orbis too — they truncate to `-1`/`0`,
+  so the custom-render clear rect's min/max accumulator (`setupCustomDrawMatrices`)
+  started out *already inverted* and the depth clear in `endCustomDrawGameState()` got a
+  garbage rect for every Iggy custom-draw region. Fixed with
+  `(std::numeric_limits<LONG>::max)()` — parenthesised, because `windows.h` makes
+  `min`/`max` macros. **Generalise: any `<climits>` constant used against a Win32
+  typedef is suspect on LP64.** `-Woverflow` catches exactly this and is on by default.
+- **`Minecraft.Client/ControlsScreen.cpp:10`: `title == L"Controls";`** — an assignment
+  written as a comparison, right under a `// 4J - added initialisers` comment, so the
+  screen's title was never set. Found by `-Wunused-result` (libstdc++ marks
+  `operator==` `[[nodiscard]]`).
+- **`Minecraft.World/Socket.cpp:314` and `:362`: `s_hostQueue[i].empty();`** in both
+  local-socket `close()` methods — `std::queue` has no `clear()`, and `empty()` only
+  *tests*, so a closed stream kept everything still buffered on it. Both were calling it
+  purely for a discarded result. Fixed with `queue<byte>().swap(...)`. Also
+  `-Wunused-result`.
+- **`Minecraft.Client/GameMode.cpp:52`: `bool GameMode::useItem` had no `return` at
+  all** — falling off the end of a non-void function is UB. It is shadowed in practice
+  (`Minecraft::gameMode` is a `MultiPlayerGameMode *`, a *separate* class from
+  `GameMode` despite the name, and `ServerPlayer::gameMode` is a `ServerPlayerGameMode *`
+  — both have real implementations), so this is UB removed rather than behaviour changed.
+  `-Wreturn-type`.
+- The four `delete`-through-`void *` sites and `MeleeAttackGoal`'s incomplete-type
+  `delete` — see the `new[]`/`delete` section above.
+- **Six int→pointer casts that lose bits on LP64** (`-Wint-to-pointer-cast`): tagged
+  values pushed onto `LevelRenderer`'s lock-free dirty-chunk stack, a rebuild-thread
+  index, `PistonBaseTile`/`TheEndPortal`'s TLS booleans, and
+  `UIScene_HowToPlayMenu`'s packed scene-init word. All now widen explicitly through
+  `(intptr_t)`. These happened to work (the values are small), but they read as
+  accidents and hid the two that mattered.
+- **`ListTag<T>::print` called a `Tag::print` overload that does not exist** — this was
+  what `-Wno-template-body` was for. `Tag.h` declared `print(ostream)` and
+  `print(char *, wostream)`; `ListTag.h` declared `print(char *, ostream)` and called
+  `Tag::print(prefix, out)`, which matches neither. All three also took the stream **by
+  value**, which cannot compile if called at all. Dead debug dumpers that survived
+  only because MSVC never instantiates an unused member template. Made consistently
+  wide (`print(const wchar_t *, wostream &)`) rather than deleted, and the flag is gone.
+- Smaller ones, each an obvious slip: `NULL` assigned to an integer
+  (`ConsoleSaveFileSplit.cpp:362` `dataCompressedSize`), `NULL` as an element of an
+  `int[][7]` table (`UIScene_LeaderboardsMenu.cpp:14,16`), `NULL` passed as an
+  `IggyLibrary` (a `typedef S32`, `UIScene.cpp:411,434`), `NULL` passed as
+  `SetFilePointer`'s `DWORD dwMoveMethod` (`ZoneIo.cpp:25,34` — now `FILE_BEGIN`,
+  same value, stated intent), and `__LOC__` in `Minecraft.Client/stdafx.h` missing the
+  space C++11 requires before a string macro.
+
+Two deprecations were fixed rather than silenced: `std::binary_function` bases on
+`DirtyChunkSorter`/`DistanceChunkSorter` (dropped — nothing read the typedefs), and
+`std::random_shuffle` in `Villager::addOffers`. The latter is the one **deliberate
+behaviour change**: it drew from the global `rand()`, so villager trade order already
+differed between platforms and between runs on the same seed. It is now Fisher-Yates over
+the villager's own `Random`, i.e. deterministic like every other random decision the mob
+makes. (`MerchantRecipeList` has no `operator[]`, but its `begin()` is a real vector
+iterator.)
+
+`-Wnon-c-typedef-for-linkage`'s 19 sites were the `typedef struct { … operator() … }
+Name;` hash/eq functors in `JavaIntHash.h`, `TickNextTickData.h`, `ChunkPos.h`,
+`TilePos.h`, `File.h`, `Player.h` and `TextureHolder.h` — rewritten as plain
+`struct Name { … };`. Mechanical, and the flag is gone.
+
+One suppression is deliberately kept: `Minecraft.Client/Linux/Iggy/CMakeLists.txt` puts
+`-Wno-unused-function -Wno-unused-variable` on `gdraw_sdl.c`, which compiles the vendor
+`.inl` files as-is. Measured: those flags hide **nothing** at this project's warning
+level (both warnings need `-Wall`, which is not used), so they cost no visibility today
+— they are a guard for whoever turns `-Wall` on later, where the vendor source does
+trip them.
 
 ## Real deadlocks found in `LinuxStubs.cpp` (Linux-specific, but real concurrency bugs)
 

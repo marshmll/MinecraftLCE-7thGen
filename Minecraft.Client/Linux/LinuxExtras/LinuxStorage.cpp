@@ -339,7 +339,7 @@ void C4JStorage::SetSaveMessageVPosition(float fY)
 	(void)fY; // no "Saving..." HUD overlay exists yet - nothing to position
 }
 
-C4JStorage::ESaveGameState C4JStorage::GetSavesInfo(int iPad, int (*Func)(LPVOID, SAVE_DETAILS *, const bool), LPVOID lpParam, char *pszSavePackName)
+C4JStorage::ESaveGameState C4JStorage::GetSavesInfo(int iPad, int (*Func)(LPVOID, SAVE_DETAILS *, const bool), LPVOID lpParam, const char *pszSavePackName)
 {
 	(void)iPad; (void)pszSavePackName;
 

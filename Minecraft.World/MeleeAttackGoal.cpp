@@ -5,6 +5,11 @@
 #include "net.minecraft.world.entity.ai.control.h"
 #include "net.minecraft.world.entity.ai.navigation.h"
 #include "net.minecraft.world.entity.ai.sensing.h"
+// Path is only forward-declared in MeleeAttackGoal.h, so without this the two
+// `delete path` sites below would delete an incomplete type and skip ~Path(),
+// leaking the whole node array. Same include the other Goals that hold a Path
+// use (AvoidPlayerGoal.cpp, MoveThroughVillageGoal.cpp).
+#include "net.minecraft.world.level.pathfinder.h"
 #include "net.minecraft.world.phys.h"
 #include "MeleeAttackGoal.h"
 

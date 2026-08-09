@@ -2,7 +2,8 @@
 class Chunk;
 class Mob;
 
-class DirtyChunkSorter : public std::binary_function<const Chunk *,const Chunk *,bool> 
+// See DistanceChunkSorter.h - std::binary_function is deprecated and unused here.
+class DirtyChunkSorter
 {
 private:
 	shared_ptr<Mob> cameraEntity;

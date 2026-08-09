@@ -75,10 +75,10 @@ void XShowAchievementsUI(int i) {}
 DWORD XBackgroundDownloadSetMode(XBACKGROUND_DOWNLOAD_MODE Mode) { return 0; }
 
 #ifndef _DURANGO
-void PIXAddNamedCounter(int a, char *b, ...) {}
+void PIXAddNamedCounter(int a, const char *b, ...) {}
 //#define PS3_USE_PIX_EVENTS 
 //#define PS4_USE_PIX_EVENTS 
-void PIXBeginNamedEvent(int a, char *b, ...)
+void PIXBeginNamedEvent(int a, const char *b, ...)
 {
 #ifdef PS4_USE_PIX_EVENTS
 	char buf[512];
@@ -131,11 +131,11 @@ void PIXEndNamedEvent()
 	PixDepth -= 1;
 #endif
 }
-void PIXSetMarkerDeprecated(int a, char *b, ...) {}
+void PIXSetMarkerDeprecated(int a, const char *b, ...) {}
 #else
 // 4J Stu - Removed this implementation in favour of a macro that will convert our string format
 // conversion at compile time rather than at runtime
-//void PIXBeginNamedEvent(int a, char *b, ...)
+//void PIXBeginNamedEvent(int a, const char *b, ...)
 //{
 //	char buf[256];
 //	wchar_t wbuf[256];
@@ -152,7 +152,7 @@ void PIXSetMarkerDeprecated(int a, char *b, ...) {}
 //	PIXEndEvent();
 //}
 //
-//void PIXSetMarkerDeprecated(int a, char *b, ...)
+//void PIXSetMarkerDeprecated(int a, const char *b, ...)
 //{
 //	char buf[256];
 //	wchar_t wbuf[256];
@@ -529,7 +529,10 @@ char fakeGamerTag[32] = "PlayerName";
 void				SetFakeGamertag(char *name){ strcpy_s(fakeGamerTag, name); }
 char*				C_4JProfile::GetGamertag(int iPad){ return fakeGamerTag; }
 #else
-char*				C_4JProfile::GetGamertag(int iPad){ return "PlayerName"; }
+// The 4J_Profile.h signature returns a mutable char*, so hand back a static
+// buffer (as the _DURANGO branch above does) rather than a string literal.
+static char			s_placeholderGamertag[] = "PlayerName";
+char*				C_4JProfile::GetGamertag(int iPad){ return s_placeholderGamertag; }
 wstring				C_4JProfile::GetDisplayName(int iPad){ return L"PlayerName"; }
 #endif
 bool				C_4JProfile::IsFullVersion() { return s_bProfileIsFullVersion; }

@@ -11,6 +11,7 @@
 #include "../../EnderDragonRenderer.h"
 #include "../../MultiPlayerLocalPlayer.h"
 #include "UIFontData.h"
+#include <limits>
 #ifdef __PSVITA__
 #include <message_dialog.h>
 #endif
@@ -1224,10 +1225,16 @@ void UIController::setupRenderPosition(S32 xOrigin, S32 yOrigin)
 void UIController::setupCustomDrawGameState()
 {
 	// Rest the clear rect
-	m_customRenderingClearRect.left = LONG_MAX;
-	m_customRenderingClearRect.right = LONG_MIN;
-	m_customRenderingClearRect.top = LONG_MAX;
-	m_customRenderingClearRect.bottom = LONG_MIN;
+	// LONG_MAX/LONG_MIN are the limits of `long`, not of RECT's LONG. They only
+	// coincide on Windows, where LONG *is* a 32-bit long; on any LP64 target
+	// (Linux, Orbis) they truncate to -1/0, so the min/max accumulator in
+	// setupCustomDrawMatrices() starts out already inverted and the depth clear
+	// in endCustomDrawGameState() gets a garbage rect. Take the limits of the actual
+	// field type instead. (Parenthesised because windows.h makes min/max macros.)
+	m_customRenderingClearRect.left = (std::numeric_limits<LONG>::max)();
+	m_customRenderingClearRect.right = (std::numeric_limits<LONG>::min)();
+	m_customRenderingClearRect.top = (std::numeric_limits<LONG>::max)();
+	m_customRenderingClearRect.bottom = (std::numeric_limits<LONG>::min)();
 
 #if defined _WINDOWS64 || _DURANGO
 	PIXBeginNamedEvent(0,"StartFrame");
@@ -1400,7 +1407,7 @@ GDrawTexture * RADLINK UIController::TextureSubstitutionCreateCallback ( void * 
 			*height = 64;
 
 	#endif
-			*destroy_callback_data = (void *)id;
+			*destroy_callback_data = (void *)(intptr_t)id;	// texture id carried in a void* slot
 
 			app.DebugPrintf("Found substitution texture %ls (%d) - %dx%d\n", (wchar_t *)texture_name, id, image.getWidth(), image.getHeight());
 			return ui.getSubstitutionTexture(id);

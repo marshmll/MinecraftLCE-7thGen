@@ -529,7 +529,17 @@ void Villager::addOffers(int addCount)
 	}
 
 	// shuffle the list to make it more interesting
-	std::random_shuffle(newOffers->begin(), newOffers->end());
+	// std::random_shuffle is deprecated (and gone in C++17), and drew from the
+	// global rand() - so the order already differed between platforms and between
+	// runs sharing a level seed. Fisher-Yates over the villager's own Random makes
+	// it deterministic instead, like every other random decision this mob makes.
+	// (MerchantRecipeList has no operator[], but begin() is a real vector
+	// iterator, so swap through that.)
+	AUTO_VAR(offersBegin, newOffers->begin());
+	for (size_t i = newOffers->size(); i > 1; i--)
+	{
+		std::swap(*(offersBegin + (i - 1)), *(offersBegin + random->nextInt((int)i)));
+	}
 
 	if (offers == NULL)
 	{

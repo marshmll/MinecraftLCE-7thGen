@@ -47,12 +47,12 @@ bool Tag::equals(Tag *obj)
 	return true;
 }
 
-void Tag::print(ostream out)
+void Tag::print(wostream &out)
 {
-	out << "";
+	out << L"";
 }
 
-void Tag::print(char *prefix, wostream out)
+void Tag::print(const wchar_t *prefix, wostream &out)
 {
 	wstring name = getName();
 
@@ -148,7 +148,7 @@ Tag *Tag::newTag(byte type, const wstring &name)
 	return NULL;
 }
 
-wchar_t *Tag::getTagName(byte type)
+const wchar_t *Tag::getTagName(byte type)
 {
 	switch (type)
 	{

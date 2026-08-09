@@ -47,20 +47,20 @@ public:
 		return wstring( buf );
 	}
 
-    void print(char *prefix, ostream out)
+    void print(const wchar_t *prefix, wostream &out)
 	{
         Tag::print(prefix, out);
 
-		out << prefix << "{" << endl;
+		out << prefix << L"{" << endl;
 
-		char *newPrefix = new char[ strlen(prefix) + 4 ];
-		strcpy( newPrefix, prefix);
-		strcat( newPrefix, "   ");
+		wchar_t *newPrefix = new wchar_t[ wcslen(prefix) + 4 ];
+		wcscpy( newPrefix, prefix);
+		wcscat( newPrefix, L"   ");
 		AUTO_VAR(itEnd, list.end());
         for (AUTO_VAR(it, list.begin()); it != itEnd; it++)
             (*it)->print(newPrefix, out);
 		delete[] newPrefix;
-		out << prefix << "}" << endl;
+		out << prefix << L"}" << endl;
 	}
 
     void add(T *tag)

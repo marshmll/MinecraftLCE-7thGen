@@ -191,14 +191,5 @@ target_link_libraries(Minecraft.Client.Linux PRIVATE
     GLEW::GLEW
 )
 
-# Same dead-code ListTag<T>::print()/Tag::print() ostream/wostream mismatch
-# already suppressed for Minecraft.World (see its CMakeLists.txt) - the
-# trunk's headers pull ListTag.h in too.
-target_compile_options(Minecraft.Client.Linux PRIVATE -Wno-template-body)
-# File.h's FileKeyHash/FileKeyEq are `typedef struct { ... operator()(...) ... }
-# Name;` - an anonymous struct with member functions, named only by the typedef.
-# GCC warns (-Wnon-c-typedef-for-linkage) that this is not a C-compatible type, once
-# per translation unit that includes File.h, which is nearly all of them. It is a
-# style complaint about a pre-existing declaration that works correctly and is not
-# worth churning a shared header for, so silence it rather than read past it.
-target_compile_options(Minecraft.Client.Linux PRIVATE -Wno-non-c-typedef-for-linkage)
+# No -Wno- suppressions here either - see the note in Minecraft.World/CMakeLists.txt.
+# This target builds warning-free with GCC's default diagnostics.

@@ -2,7 +2,9 @@
 class Entity;
 class Chunk;
 
-class DistanceChunkSorter : public std::binary_function<const Chunk *,const Chunk *,bool> 
+// std::binary_function is deprecated (removed in C++17) and only ever supplied
+// argument/result typedefs that nothing here reads - std::sort just needs operator().
+class DistanceChunkSorter
 {
 private:
 	double ix, iy, iz;

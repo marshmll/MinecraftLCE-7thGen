@@ -200,6 +200,8 @@ void UIScene_HowToPlayMenu::handlePress(F64 controlId, F64 childId)
 
 		unsigned int uiInitData;
 		uiInitData = ( ( 1 <<  31 )  | ( m_uiHTPSceneA[(int)childId]  << 16 ) | ( short )( m_iPad ) );
-		ui.NavigateToScene(m_iPad, eUIScene_HowToPlay, ( void* )( uiInitData ) );
+		// uiInitData is a packed word smuggled through the void* init-data slot,
+		// not a real pointer - widen it explicitly.
+		ui.NavigateToScene(m_iPad, eUIScene_HowToPlay, ( void* )( intptr_t )( uiInitData ) );
 	}
 }

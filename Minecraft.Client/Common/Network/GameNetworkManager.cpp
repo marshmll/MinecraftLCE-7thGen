@@ -876,7 +876,8 @@ int CGameNetworkManager::ServerThreadProc( void* lpParameter )
 	IntCache::ReleaseThreadStorage();
 	Level::destroyLightingCache();
 
-	if(lpParameter != NULL) delete lpParameter;
+	// Deleting through the void* would skip NetworkGameInitData's destructor.
+	if(lpParameter != NULL) delete (NetworkGameInitData *)lpParameter;
 
 	return S_OK;
 }

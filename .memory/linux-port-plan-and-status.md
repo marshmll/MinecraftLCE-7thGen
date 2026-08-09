@@ -334,3 +334,45 @@ grain count plus peak amplitude, because silence and "not wired up" are
 indistinguishable by ear.
 
 Read `.claude/linux-port/MILES.md` before touching any of this.
+
+## Warning cleanup — the build is now warning-free (2026-08-09)
+
+The build emitted **1403 unique warning sites** and carried two `-Wno-` flags hiding 21
+more. It is now **zero warnings, zero linker warnings, no `-Wno-` suppressions** on either
+target (verified by a from-scratch `cmake --build` and by replaying all 1157 entries of
+`compile_commands.json` with `-fsyntax-only`).
+
+98% of the noise was one category — `-Wwrite-strings`, 1370 sites — and it collapsed to
+just **four declarations plus seven static name tables**, with no call site needing an
+edit: `CompoundTag`'s ~26 NBT accessors, the four `PIX*` stubs, `Tag::getTagName()`, and
+the `ColourTable`/`Textures`/`GameRuleManager`/`SoundEngine`/`DLC*`/`SkinSelect` name
+tables. All fixed with `const`, which is source-compatible with MSVC.
+
+**The point of doing it: the noise was hiding eleven real, pre-existing bugs.** The two
+worth remembering:
+
+1. **`LONG_MAX` is not `RECT`'s `LONG` max on LP64.** `UIController.cpp`'s custom-render
+   clear rect seeded its min/max accumulator with `LONG_MAX`/`LONG_MIN`, which are
+   `long`'s limits — 64-bit here, so they truncated to `-1`/`0` and every Iggy
+   custom-draw region got a garbage depth-clear rect. Would be broken on Orbis too.
+2. **A `new byte[]` buffer freed with `delete` through a `LPVOID`**, on the
+   load-a-save/tutorial path (`MinecraftServer.cpp:264`) — a fourth instance of
+   `KNOWN_BUGS.md`'s heap-corruption class, plus three more `delete void*` sites and a
+   `delete` of an incomplete `Path` that skipped its destructor.
+
+Plus: `title == L"Controls"` (assignment written as comparison), two
+`queue.empty()` calls where `clear` was meant in `Socket::close()`, `GameMode::useItem`
+with no `return` at all, six int→pointer casts, and — behind `-Wno-template-body` —
+`ListTag<T>::print` calling a `Tag::print` overload that does not exist.
+
+One deliberate behaviour change: `Villager::addOffers` used `std::random_shuffle` (global
+`rand()`, so trade order already varied per platform and per run on one seed); it is now
+Fisher-Yates over the villager's own `Random`.
+
+Full detail, including the sweep method (dedupe by `realpath:line:col`, or header
+warnings multiply by TU count), is in `.claude/linux-port/KNOWN_BUGS.md` under
+"The warning sweep".
+
+**Not yet playtested:** villager trading and item-use-in-hand specifically. The client
+was verified booting, generating, rendering and exiting cleanly twice, with the HUD and
+Iggy custom-draw tooltip (the clear-rect path) correct — but no villager was traded with.

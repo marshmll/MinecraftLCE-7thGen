@@ -49,6 +49,10 @@ void GameMode::render(float a)
 
 bool GameMode::useItem(shared_ptr<Player> player, Level *level, shared_ptr<ItemInstance> item, bool bTestUseOnly)
 {
+	// Base implementation does nothing; SurvivalMode/CreativeMode override it.
+	// Falling off the end of a non-void function is undefined behaviour, so say
+	// "item was not used" explicitly.
+	return false;
 }
 
 void GameMode::initPlayer(shared_ptr<Player> player)

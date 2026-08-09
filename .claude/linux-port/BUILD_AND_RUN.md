@@ -32,6 +32,19 @@ Two targets:
 - `Minecraft.Client.Linux` (executable) — everything else, linked against
   `Minecraft.World` + SDL2/OpenGL/GLEW/OpenAL
 
+**Both targets build warning-free, and neither carries a `-Wno-` suppression.** A clean
+`cmake --build build` over all 1157 translation units emits zero warnings and zero
+linker warnings. It used to emit 1403 unique warnings plus two `-Wno-` flags that hid 21
+more, which buried eleven real bugs — see `KNOWN_BUGS.md`'s "The warning sweep" section
+for what they were and for the sweep script's method. **Treat a new warning as signal and
+fix it, rather than letting the count start climbing again.** Note that an incremental
+build only recompiles what changed, so it is not a check on the whole tree; to re-verify
+everything, replay `build/compile_commands.json` with `-fsyntax-only`.
+
+(The one remaining suppression, `-Wno-unused-function -Wno-unused-variable` on
+`Linux/Iggy/gdraw_sdl.c`, guards vendor `.inl` source and was measured to hide nothing at
+the current warning level.)
+
 ## Run — working directory matters
 
 ```

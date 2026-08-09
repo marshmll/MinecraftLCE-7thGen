@@ -271,7 +271,7 @@ public:
 
 	void								SetSaveMessageVPosition(float fY); // The 'Saving' message will display at a default position unless changed
 	// Get the info for the saves
-	C4JStorage::ESaveGameState	GetSavesInfo(int iPad,int ( *Func)(LPVOID lpParam,SAVE_DETAILS *pSaveDetails,const bool),LPVOID lpParam,char *pszSavePackName);
+	C4JStorage::ESaveGameState	GetSavesInfo(int iPad,int ( *Func)(LPVOID lpParam,SAVE_DETAILS *pSaveDetails,const bool),LPVOID lpParam,const char *pszSavePackName);
 	PSAVE_DETAILS				ReturnSavesInfo();
 	void						ClearSavesInfo();	// Clears results
 	C4JStorage::ESaveGameState	LoadSaveDataThumbnail(PSAVE_INFO pSaveInfo,int( *Func)(LPVOID lpParam,PBYTE pbThumbnail,DWORD dwThumbnailBytes), LPVOID lpParam);	// Get the thumbnail for an individual save referenced by pSaveInfo

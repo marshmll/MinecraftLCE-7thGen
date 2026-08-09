@@ -311,7 +311,10 @@ void Socket::SocketInputStreamLocal::close()
 {
 	m_streamOpen = false;
 	EnterCriticalSection(&s_hostQueueLock[m_queueIdx]);
-	s_hostQueue[m_queueIdx].empty();
+	// std::queue has no clear(), and empty() only *tests* - it was being called
+	// for its (discarded) result, so a closed stream kept everything still
+	// buffered on it. Swap in a fresh queue to actually discard it.
+	queue<unsigned char>().swap(s_hostQueue[m_queueIdx]);
 	LeaveCriticalSection(&s_hostQueueLock[m_queueIdx]);
 }
 
@@ -359,7 +362,8 @@ void Socket::SocketOutputStreamLocal::close()
 {
 	m_streamOpen = false;
 	EnterCriticalSection(&s_hostQueueLock[m_queueIdx]);
-	s_hostQueue[m_queueIdx].empty();
+	// As in SocketInputStreamLocal::close() above - empty() tests, it doesn't clear.
+	queue<unsigned char>().swap(s_hostQueue[m_queueIdx]);
 	LeaveCriticalSection(&s_hostQueueLock[m_queueIdx]);
 }
 

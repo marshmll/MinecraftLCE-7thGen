@@ -113,7 +113,7 @@ F32 AILCALLBACK custom_falloff_function (HSAMPLE   S,
 										 F32       min_dist,
 										 F32       max_dist);
 
-char *SoundEngine::m_szStreamFileA[eStream_Max]=
+const char *SoundEngine::m_szStreamFileA[eStream_Max]=
 {
 	"calm1",
 	"calm2",

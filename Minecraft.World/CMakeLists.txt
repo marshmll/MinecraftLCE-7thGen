@@ -49,19 +49,10 @@ target_compile_definitions(Minecraft.World PUBLIC
 
 target_link_libraries(Minecraft.World PUBLIC pthread)
 
-# ListTag<T>::print()/Tag::print() (NBT debug dumper, dead code - verified no
-# caller anywhere in Minecraft.World or Minecraft.Client) has a pre-existing
-# ostream/wostream mismatch that was never checked under MSVC's lazy
-# uninstantiated-template handling. Modern GCC's -Wtemplate-body checks
-# template bodies even without instantiation and flags it as an error; this
-# restores the old lazy-checking behavior for that dead code rather than
-# guessing at intended semantics for a print() nothing calls.
-target_compile_options(Minecraft.World PRIVATE -Wno-template-body)
-# File.h's FileKeyHash/FileKeyEq are `typedef struct { ... operator()(...) ... }
-# Name;` - an anonymous struct with member functions, named only by the typedef.
-# GCC warns (-Wnon-c-typedef-for-linkage) that this is not a C-compatible type, once
-# per translation unit that includes File.h, which is nearly all of them. It is a
-# style complaint about a pre-existing declaration that works correctly and is not
-# worth churning a shared header for, so silence it rather than read past it.
-target_compile_options(Minecraft.World PRIVATE -Wno-non-c-typedef-for-linkage)
+# This target builds warning-free with GCC's default diagnostics and no -Wno-
+# suppressions. The two that used to live here (-Wno-template-body for
+# Tag/ListTag::print's ostream/wostream mismatch, -Wno-non-c-typedef-for-linkage
+# for the `typedef struct { ... } Name;` hash/eq functors) are gone because the
+# code they described was fixed instead. Keep it that way: a new warning here is
+# signal, not noise.
 

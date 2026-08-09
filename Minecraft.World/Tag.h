@@ -31,14 +31,17 @@ public:
     virtual void load(DataInput *dis)  = 0;
     virtual wstring toString() = 0;
     virtual byte getId() = 0;
-    void print(ostream out);
-    void print(char *prefix, wostream out);
+    // Debug dumpers. The whole tag hierarchy is wide (getTagName/toString both
+    // return wide text), so these are wostream throughout; the streams are taken
+    // by reference because a stream cannot be copied.
+    void print(wostream &out);
+    void print(const wchar_t *prefix, wostream &out);
     wstring getName();
     Tag *setName(const wstring& name);
     static Tag *readNamedTag(DataInput *dis);
     static void writeNamedTag(Tag *tag, DataOutput *dos);
     static Tag *newTag(byte type, const wstring &name);
-    static wchar_t *getTagName(byte type);
+    static const wchar_t *getTagName(byte type);
 	virtual ~Tag() {}
 	virtual bool equals(Tag *obj); // 4J Brought forward from 1.2
 	virtual Tag *copy() = 0; // 4J Brought foward from 1.2
